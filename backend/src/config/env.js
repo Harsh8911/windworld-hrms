@@ -49,7 +49,7 @@ if (accessSecret === refreshSecret) {
 
 const env = Object.freeze({
   nodeEnv: process.env.NODE_ENV ?? "development",
-  port: positiveInteger("PORT", 5003),
+  port: positiveInteger("PORT", 5005),
   corsOrigins: (process.env.CORS_ORIGINS ?? "")
     .split(",")
     .map((origin) => origin.trim())
