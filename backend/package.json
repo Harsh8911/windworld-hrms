@@ -1,0 +1,28 @@
+{
+  "name": "windworld-backend",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Windworld Express API",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "db:create": "node src/db/createDatabase.js",
+    "db:migrate": "node src/db/migrate.js",
+    "db:seed:admin": "node src/db/seedAdmin.js",
+    "db:setup": "npm run db:create && npm run db:migrate && npm run db:seed:admin",
+    "check": "node --check src/server.js && node --check src/app.js && node --check src/routes/authRoutes.js && node --check src/routes/adminRoutes.js && node --check src/routes/employeeRoutes.js && node --check src/services/authService.js && node --check src/services/employeeService.js && node --check src/services/attendanceLocationService.js && node --check src/services/attendanceService.js && node --check src/services/adminAttendanceService.js && node --check src/services/attendanceScheduler.js && node --check src/middleware/authenticate.js && node --check src/tests/integration.js",
+    "test:integration": "node src/tests/integration.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.7.1",
+    "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.23.1",
+    "zod": "^4.6.7"
+  }
+}

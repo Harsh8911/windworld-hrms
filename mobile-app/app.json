@@ -1,0 +1,43 @@
+{
+  "expo": {
+    "name": "Windworld",
+    "slug": "windworld",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.windworld.mobile"
+    },
+    "android": {
+      "package": "com.windworld.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#f3f9f0"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow Windworld to use your precise location to verify attendance punches within your assigned work boundary."
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/logo.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
+        }
+      ]
+    ]
+  }
+}
