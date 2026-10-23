@@ -1,6 +1,11 @@
 import bcrypt from "bcryptjs";
+import dotenv from "dotenv";
+import { Client } from "pg";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-import { pool } from "../src/db/pool.js";
+const seedDirectory = dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: resolve(seedDirectory, "../.env") });
 
 type AdminSeedConfig = {
   email: string;
@@ -46,35 +51,49 @@ function getAdminSeedConfig(): AdminSeedConfig {
 async function seedAdmin(): Promise<void> {
   const admin = getAdminSeedConfig();
   const passwordHash = await bcrypt.hash(admin.password, BCRYPT_COST);
+  const client = new Client({
+    host: process.env.DB_HOST ?? "localhost",
+    port: Number(process.env.DB_PORT ?? 5432),
+    database: process.env.DB_NAME ?? "windworld",
+    user: process.env.DB_USER ?? "postgres",
+    password: requiredEnvironmentValue("DB_PASSWORD"),
+    ssl: process.env.DB_SSL === "true" ? { rejectUnauthorized: true } : false,
+  });
 
-  const result = await pool.query<{ id: string; email: string }>(
-    `INSERT INTO users (
-       email,
-       username,
-       full_name,
-       password_hash,
-       role,
-       is_active
-     )
-     VALUES ($1, $2, $3, $4, 'ADMIN', TRUE)
-     ON CONFLICT (email) DO UPDATE SET
-       username = EXCLUDED.username,
-       full_name = EXCLUDED.full_name,
-       password_hash = EXCLUDED.password_hash,
-       role = 'ADMIN',
-       is_active = TRUE,
-       updated_at = NOW()
-     RETURNING id, email`,
-    [admin.email, admin.username, admin.fullName, passwordHash],
-  );
+  await client.connect();
 
-  const seededAdmin = result.rows[0];
+  try {
+    const result = await client.query<{ id: string; email: string }>(
+      `INSERT INTO users (
+         email,
+         username,
+         full_name,
+         password_hash,
+         role,
+         is_active
+       )
+       VALUES ($1, $2, $3, $4, 'ADMIN', TRUE)
+       ON CONFLICT (email) DO UPDATE SET
+         username = EXCLUDED.username,
+         full_name = EXCLUDED.full_name,
+         password_hash = EXCLUDED.password_hash,
+         role = 'ADMIN',
+         is_active = TRUE,
+         updated_at = NOW()
+       RETURNING id, email`,
+      [admin.email, admin.username, admin.fullName, passwordHash],
+    );
 
-  if (!seededAdmin) {
-    throw new Error("PostgreSQL did not return the seeded administrator");
+    const seededAdmin = result.rows[0];
+
+    if (!seededAdmin) {
+      throw new Error("PostgreSQL did not return the seeded administrator");
+    }
+
+    console.log(`Administrator account seeded: ${seededAdmin.email}`);
+  } finally {
+    await client.end();
   }
-
-  console.log(`Administrator account seeded: ${seededAdmin.email}`);
 }
 
 seedAdmin()
@@ -82,7 +101,4 @@ seedAdmin()
     const message = error instanceof Error ? error.message : String(error);
     console.error("Administrator seed failed:", message);
     process.exitCode = 1;
-  })
-  .finally(async () => {
-    await pool.end();
   });
