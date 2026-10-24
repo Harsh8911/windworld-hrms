@@ -43,11 +43,12 @@ const emptyShiftDraft: ShiftDraft = {
 };
 
 function createShiftDraft(shift: AdminShiftSettings): ShiftDraft {
+  const calculatedMinutes = calculateShiftMinutes(shift.startTime, shift.endTime);
   return {
     name: shift.name,
     startTime: shift.startTime,
     endTime: shift.endTime,
-    maxDurationMinutes: String(shift.maxDurationMinutes),
+    maxDurationMinutes: String(calculatedMinutes ?? shift.maxDurationMinutes),
     timezone: shift.timezone,
   };
 }
@@ -83,10 +84,6 @@ export default function AdminSettingsScreen({ onLogout }: AdminSettingsScreenPro
   const [isEditingShift, setIsEditingShift] = useState(false);
   const [isSavingShift, setIsSavingShift] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
-  const draftShiftMinutes = calculateShiftMinutes(shiftDraft.startTime, shiftDraft.endTime);
-  const savedShiftMinutes = shift
-    ? calculateShiftMinutes(shift.startTime, shift.endTime)
-    : null;
 
   const loadWorkspace = useCallback(async (refreshing = false) => {
     if (refreshing) setIsRefreshing(true);
@@ -304,7 +301,7 @@ export default function AdminSettingsScreen({ onLogout }: AdminSettingsScreenPro
             </Text>
             <Text className="mt-1 text-xs leading-5 text-slate-500">
               {shift
-                ? `${shift.startTime}-${shift.endTime} · ${savedShiftMinutes === null ? "Invalid schedule" : `${formatDuration(savedShiftMinutes)} work hours`} · ${formatDuration(shift.maxDurationMinutes)} auto-checkout limit · ${shift.timezone}`
+                ? `${shift.startTime}–${shift.endTime} · ${formatDuration(shift.maxDurationMinutes)} maximum · ${shift.timezone}`
                 : "Retrieving the database-backed attendance schedule."}
             </Text>
           </View>
@@ -352,7 +349,15 @@ export default function AdminSettingsScreen({ onLogout }: AdminSettingsScreenPro
                 label="Start time"
                 maxLength={5}
                 onChangeText={(startTime) =>
-                  setShiftDraft((current) => ({ ...current, startTime }))
+                  setShiftDraft((current) => {
+                    const calculatedMinutes = calculateShiftMinutes(startTime, current.endTime);
+                    return {
+                      ...current,
+                      startTime,
+                      maxDurationMinutes:
+                        calculatedMinutes === null ? "" : String(calculatedMinutes),
+                    };
+                  })
                 }
                 placeholder="10:00"
                 value={shiftDraft.startTime}
@@ -367,7 +372,15 @@ export default function AdminSettingsScreen({ onLogout }: AdminSettingsScreenPro
                 label="End time"
                 maxLength={5}
                 onChangeText={(endTime) =>
-                  setShiftDraft((current) => ({ ...current, endTime }))
+                  setShiftDraft((current) => {
+                    const calculatedMinutes = calculateShiftMinutes(current.startTime, endTime);
+                    return {
+                      ...current,
+                      endTime,
+                      maxDurationMinutes:
+                        calculatedMinutes === null ? "" : String(calculatedMinutes),
+                    };
+                  })
                 }
                 placeholder="18:00"
                 value={shiftDraft.endTime}
@@ -375,37 +388,10 @@ export default function AdminSettingsScreen({ onLogout }: AdminSettingsScreenPro
             </View>
           </View>
 
-          <View className="mb-5 flex-row items-center rounded-[18px] border border-wind-100 bg-wind-50 px-4 py-4">
-            <View className="h-10 w-10 items-center justify-center rounded-[14px] bg-white">
-              <Ionicons color="#047857" name="time-outline" size={21} />
-            </View>
-            <View className="ml-3 flex-1">
-              <Text className="text-xs font-semibold uppercase tracking-wide text-wind-700">
-                Calculated work hours
-              </Text>
-              <Text accessibilityLiveRegion="polite" className="mt-1 text-lg font-bold text-slate-950">
-                {draftShiftMinutes === null
-                  ? "Enter valid shift times"
-                  : formatDuration(draftShiftMinutes)}
-              </Text>
-              <Text className="mt-1 text-xs leading-5 text-slate-500">
-                Updates automatically from the start and end times.
-              </Text>
-            </View>
-          </View>
-
           <FormField
-            editable={!isSavingShift}
-            helperText="Auto-checkout limit: 30–1440 minutes; cannot exceed the calculated work hours."
-            keyboardType="number-pad"
+            editable={false}
+            helperText="Automatically calculated from the start and end times."
             label="Maximum work duration (minutes)"
-            maxLength={4}
-            onChangeText={(maxDurationMinutes) =>
-              setShiftDraft((current) => ({
-                ...current,
-                maxDurationMinutes: maxDurationMinutes.replace(/\D/g, "").slice(0, 4),
-              }))
-            }
             placeholder="480"
             value={shiftDraft.maxDurationMinutes}
           />
