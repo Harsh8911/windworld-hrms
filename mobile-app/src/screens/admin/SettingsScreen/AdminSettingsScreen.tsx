@@ -59,6 +59,13 @@ function timeInMinutes(value: string) {
   return hours * 60 + minutes;
 }
 
+function calculateShiftMinutes(startTime: string, endTime: string) {
+  const startMinutes = timeInMinutes(startTime);
+  const endMinutes = timeInMinutes(endTime);
+  if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) return null;
+  return endMinutes - startMinutes;
+}
+
 function formatDuration(minutes: number) {
   const hours = Math.floor(minutes / 60);
   const remainder = minutes % 60;
@@ -76,6 +83,10 @@ export default function AdminSettingsScreen({ onLogout }: AdminSettingsScreenPro
   const [isEditingShift, setIsEditingShift] = useState(false);
   const [isSavingShift, setIsSavingShift] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
+  const draftShiftMinutes = calculateShiftMinutes(shiftDraft.startTime, shiftDraft.endTime);
+  const savedShiftMinutes = shift
+    ? calculateShiftMinutes(shift.startTime, shift.endTime)
+    : null;
 
   const loadWorkspace = useCallback(async (refreshing = false) => {
     if (refreshing) setIsRefreshing(true);
@@ -124,6 +135,7 @@ export default function AdminSettingsScreen({ onLogout }: AdminSettingsScreenPro
     const name = shiftDraft.name.trim();
     const startMinutes = timeInMinutes(shiftDraft.startTime);
     const endMinutes = timeInMinutes(shiftDraft.endTime);
+    const scheduledMinutes = calculateShiftMinutes(shiftDraft.startTime, shiftDraft.endTime);
     const maxDurationMinutes = Number(shiftDraft.maxDurationMinutes);
     const timezone = shiftDraft.timezone.trim();
 
@@ -135,7 +147,7 @@ export default function AdminSettingsScreen({ onLogout }: AdminSettingsScreenPro
       setError("Start and end times must use a valid 24-hour HH:mm format.");
       return;
     }
-    if (endMinutes <= startMinutes) {
+    if (scheduledMinutes === null) {
       setError("Shift end time must be later than its start time.");
       return;
     }
@@ -143,7 +155,7 @@ export default function AdminSettingsScreen({ onLogout }: AdminSettingsScreenPro
       setError("Maximum duration must be a whole number between 30 and 1440 minutes.");
       return;
     }
-    if (maxDurationMinutes > endMinutes - startMinutes) {
+    if (maxDurationMinutes > scheduledMinutes) {
       setError("Maximum duration cannot exceed the scheduled shift length.");
       return;
     }
@@ -292,7 +304,7 @@ export default function AdminSettingsScreen({ onLogout }: AdminSettingsScreenPro
             </Text>
             <Text className="mt-1 text-xs leading-5 text-slate-500">
               {shift
-                ? `${shift.startTime}–${shift.endTime} · ${formatDuration(shift.maxDurationMinutes)} maximum · ${shift.timezone}`
+                ? `${shift.startTime}-${shift.endTime} · ${savedShiftMinutes === null ? "Invalid schedule" : `${formatDuration(savedShiftMinutes)} work hours`} · ${formatDuration(shift.maxDurationMinutes)} auto-checkout limit · ${shift.timezone}`
                 : "Retrieving the database-backed attendance schedule."}
             </Text>
           </View>
@@ -363,9 +375,28 @@ export default function AdminSettingsScreen({ onLogout }: AdminSettingsScreenPro
             </View>
           </View>
 
+          <View className="mb-5 flex-row items-center rounded-[18px] border border-wind-100 bg-wind-50 px-4 py-4">
+            <View className="h-10 w-10 items-center justify-center rounded-[14px] bg-white">
+              <Ionicons color="#047857" name="time-outline" size={21} />
+            </View>
+            <View className="ml-3 flex-1">
+              <Text className="text-xs font-semibold uppercase tracking-wide text-wind-700">
+                Calculated work hours
+              </Text>
+              <Text accessibilityLiveRegion="polite" className="mt-1 text-lg font-bold text-slate-950">
+                {draftShiftMinutes === null
+                  ? "Enter valid shift times"
+                  : formatDuration(draftShiftMinutes)}
+              </Text>
+              <Text className="mt-1 text-xs leading-5 text-slate-500">
+                Updates automatically from the start and end times.
+              </Text>
+            </View>
+          </View>
+
           <FormField
             editable={!isSavingShift}
-            helperText="30–1440 minutes; cannot exceed the scheduled shift length."
+            helperText="Auto-checkout limit: 30–1440 minutes; cannot exceed the calculated work hours."
             keyboardType="number-pad"
             label="Maximum work duration (minutes)"
             maxLength={4}
