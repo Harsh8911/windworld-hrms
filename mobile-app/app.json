@@ -1,8 +1,9 @@
 {
   "expo": {
-    "name": "Windworld",
+    "name": "WindWorld HRMS",
     "slug": "windworld",
-    "version": "0.1.0",
+    "version": "0.1.1",
+    "icon": "./assets/favicon.png",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "assetBundlePatterns": [
@@ -10,23 +11,36 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.windworld.mobile"
+      "bundleIdentifier": "com.windworld.mobile",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.windworld.mobile",
+      "versionCode": 2,
       "adaptiveIcon": {
-        "backgroundColor": "#f3f9f0"
+        "foregroundImage": "./assets/favicon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ],
+      "runtimeVersion": {
+        "policy": "appVersion"
       }
     },
     "web": {
-      "bundler": "metro"
+      "bundler": "metro",
+      "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "expo-secure-store",
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Allow Windworld to use your precise location to verify attendance punches within your assigned work boundary."
+          "locationWhenInUsePermission": "Allow Windworld HRMS to use your precise location to verify attendance punches within your assigned work boundary."
         }
       ],
       [
@@ -37,7 +51,33 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "useLegacyPackaging": true,
+            "enableBundleCompression": true,
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true,
+            "usesCleartextTraffic": false,
+            "gifEnabled": false,
+            "webpEnabled": false
+          }
+        }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "0f6886c8-ea57-4b54-9ed0-a460620f095a"
+      }
+    },
+    "owner": "harsh89173",
+    "updates": {
+      "url": "https://u.expo.dev/0f6886c8-ea57-4b54-9ed0-a460620f095a",
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    }
   }
 }

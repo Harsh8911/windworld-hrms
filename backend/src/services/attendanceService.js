@@ -19,58 +19,30 @@ function distanceInMeters(latitudeA, longitudeA, latitudeB, longitudeB) {
   return 2 * EARTH_RADIUS_METERS * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function validateGeofence(context, position) {
-  if (!context.attendance_location_id) {
-    throw new AppError(
-      422,
-      "ATTENDANCE_LOCATION_REQUIRED",
-      "Ask your administrator to assign an attendance location before punching",
-    );
-  }
-
-  if (!context.location_is_active) {
-    throw new AppError(
-      422,
-      "ATTENDANCE_LOCATION_UNAVAILABLE",
-      "Your assigned attendance location is currently unavailable",
-    );
-  }
-
-  const distance = distanceInMeters(
-    Number(context.location_latitude),
-    Number(context.location_longitude),
-    position.latitude,
-    position.longitude,
-  );
-  const radius = Number(context.geofence_radius_meters);
-
-  if (distance + position.accuracyMeters > radius) {
-    throw new AppError(
-      422,
-      "OUTSIDE_GEOFENCE",
-      `You must be inside the ${radius}-meter ${context.location_name} geofence to punch`,
-    );
-  }
-
-  return distance;
+function publicLocation(location) {
+  return {
+    id: location.id,
+    name: location.name,
+    latitude: Number(location.latitude),
+    longitude: Number(location.longitude),
+    wifiIp: location.wifi_ip,
+    geofenceRadiusMeters: location.geofence_radius_meters,
+    isPrimary: location.is_primary,
+    isActive: location.is_active,
+  };
 }
 
 async function getEmployeeContext(client, employeeUserId, { lock = false } = {}) {
   const result = await client.query(
     `SELECT
        profiles.user_id,
-       profiles.attendance_location_id,
+       profiles.employee_role,
        shifts.id AS shift_id,
        shifts.name AS shift_name,
        shifts.start_time::text AS shift_start_time,
        shifts.end_time::text AS shift_end_time,
        shifts.max_duration_minutes,
        shifts.timezone,
-       locations.name AS location_name,
-       locations.latitude AS location_latitude,
-       locations.longitude AS location_longitude,
-       locations.geofence_radius_meters,
-       locations.is_active AS location_is_active,
        CURRENT_TIMESTAMP AS database_now,
        (CURRENT_TIMESTAMP AT TIME ZONE shifts.timezone)::date AS local_date,
        (((CURRENT_TIMESTAMP AT TIME ZONE shifts.timezone)::date + shifts.start_time)
@@ -79,7 +51,6 @@ async function getEmployeeContext(client, employeeUserId, { lock = false } = {})
          AT TIME ZONE shifts.timezone) AS shift_end_at
      FROM employee_profiles AS profiles
      JOIN work_shifts AS shifts ON shifts.id = profiles.shift_id AND shifts.is_active = TRUE
-     LEFT JOIN attendance_locations AS locations ON locations.id = profiles.attendance_location_id
      WHERE profiles.user_id = $1
      ${lock ? "FOR UPDATE OF profiles" : ""}`,
     [employeeUserId],
@@ -90,6 +61,93 @@ async function getEmployeeContext(client, employeeUserId, { lock = false } = {})
   }
 
   return result.rows[0];
+}
+
+async function getAvailableLocations(client, context) {
+  const result = await client.query(
+    context.employee_role === "MANAGER"
+      ? `SELECT * FROM attendance_locations WHERE is_active = TRUE ORDER BY is_primary DESC, name`
+      : `SELECT locations.*
+         FROM employee_attendance_locations AS assignments
+         JOIN attendance_locations AS locations
+           ON locations.id = assignments.attendance_location_id
+         WHERE assignments.employee_user_id = $1 AND locations.is_active = TRUE
+         ORDER BY locations.is_primary DESC, locations.name`,
+    context.employee_role === "MANAGER" ? [] : [context.user_id],
+  );
+
+  return result.rows;
+}
+
+function geofenceDistance(location, position) {
+  return distanceInMeters(
+    Number(location.latitude),
+    Number(location.longitude),
+    position.latitude,
+    position.longitude,
+  );
+}
+
+function resolvePunchLocation(
+  locations,
+  position,
+  attendanceLocationId,
+  { allowArbitraryLocation = false } = {},
+) {
+  if (locations.length === 0 && !allowArbitraryLocation) {
+    throw new AppError(
+      422,
+      "ATTENDANCE_LOCATION_REQUIRED",
+      "Ask your administrator to assign an active attendance location before punching",
+    );
+  }
+
+  if (attendanceLocationId) {
+    const selected = locations.find((location) => location.id === attendanceLocationId);
+    if (!selected) {
+      throw new AppError(
+        422,
+        "ATTENDANCE_LOCATION_NOT_ALLOWED",
+        "The selected attendance location is not available to you",
+      );
+    }
+
+    const distance = geofenceDistance(selected, position);
+    if (
+      !allowArbitraryLocation &&
+      distance + position.accuracyMeters > Number(selected.geofence_radius_meters)
+    ) {
+      throw new AppError(
+        422,
+        "OUTSIDE_GEOFENCE",
+        `You must be inside the ${selected.geofence_radius_meters}-meter ${selected.name} geofence to punch`,
+      );
+    }
+
+    return { location: selected, distance };
+  }
+
+  const candidates = locations
+    .map((location) => ({ location, distance: geofenceDistance(location, position) }))
+    .sort((left, right) => left.distance - right.distance);
+  const recognized = candidates.find(
+    ({ location, distance }) =>
+      distance + position.accuracyMeters <= Number(location.geofence_radius_meters),
+  );
+
+  if (!recognized && allowArbitraryLocation) {
+    return { location: null, distance: null };
+  }
+
+  if (!recognized) {
+    throw new AppError(
+      422,
+      "LOCATION_NOT_RECOGNIZED",
+      "Sorry, location is not recognized. Please select the location manually from the dropdown.",
+    );
+  }
+
+  return recognized;
 }
 
 function publicShift(context) {
@@ -122,10 +180,21 @@ function publicSession(row) {
     status: punchOutAt ? "COMPLETED" : "IN_PROGRESS",
     isLate: Boolean(row.is_late),
     punchOutReason: row.punch_out_reason,
-    location: {
-      id: row.attendance_location_id,
-      name: row.location_name,
-    },
+    location: row.attendance_location_id
+      ? {
+          id: row.attendance_location_id,
+          name: row.location_name,
+        }
+      : { id: null, name: "Current GPS location" },
+    punchOutLocation:
+      row.punch_out_attendance_location_id || row.punch_out_latitude !== null
+        ? row.punch_out_attendance_location_id
+          ? {
+              id: row.punch_out_attendance_location_id,
+              name: row.punch_out_location_name,
+            }
+          : { id: null, name: "Current GPS location" }
+        : null,
   };
 }
 
@@ -134,12 +203,15 @@ async function getSessionById(client, sessionId) {
     `SELECT
        sessions.*,
        locations.name AS location_name,
+       punch_out_locations.name AS punch_out_location_name,
        CURRENT_TIMESTAMP AS database_now,
        ((sessions.punch_in_at AT TIME ZONE shifts.timezone)::time > shifts.start_time) AS is_late
      FROM attendance_sessions AS sessions
      JOIN employee_profiles AS profiles ON profiles.user_id = sessions.employee_user_id
      JOIN work_shifts AS shifts ON shifts.id = profiles.shift_id
-     JOIN attendance_locations AS locations ON locations.id = sessions.attendance_location_id
+     LEFT JOIN attendance_locations AS locations ON locations.id = sessions.attendance_location_id
+     LEFT JOIN attendance_locations AS punch_out_locations
+       ON punch_out_locations.id = sessions.punch_out_attendance_location_id
      WHERE sessions.id = $1`,
     [sessionId],
   );
@@ -194,16 +266,20 @@ async function getAttendanceOverview(employeeUserId) {
   const client = await pool.connect();
   try {
     const context = await getEmployeeContext(client, employeeUserId);
+    const availableLocations = await getAvailableLocations(client, context);
     const localDate = dateOnly(context.local_date);
     const result = await client.query(
       `SELECT
          sessions.*,
          locations.name AS location_name,
+         punch_out_locations.name AS punch_out_location_name,
          CURRENT_TIMESTAMP AS database_now,
          ((sessions.punch_in_at AT TIME ZONE shifts.timezone)::time > shifts.start_time) AS is_late
        FROM attendance_sessions AS sessions
        JOIN work_shifts AS shifts ON shifts.id = $2
-       JOIN attendance_locations AS locations ON locations.id = sessions.attendance_location_id
+       LEFT JOIN attendance_locations AS locations ON locations.id = sessions.attendance_location_id
+       LEFT JOIN attendance_locations AS punch_out_locations
+         ON punch_out_locations.id = sessions.punch_out_attendance_location_id
        WHERE sessions.employee_user_id = $1
          AND sessions.attendance_date >= ($3::date - 370)
        ORDER BY sessions.attendance_date DESC`,
@@ -216,9 +292,10 @@ async function getAttendanceOverview(employeeUserId) {
     return {
       serverTime: new Date(context.database_now).toISOString(),
       attendanceDate: localDate,
+      employeeRole: context.employee_role,
+      availableLocations: availableLocations.map(publicLocation),
       shift: publicShift(context),
-      todaySession:
-        sessions.find((session) => session.attendanceDate === localDate) ?? null,
+      todaySession: sessions.find((session) => session.attendanceDate === localDate) ?? null,
       sessions,
       currentMonth: {
         daysPresent: monthSessions.length,
@@ -233,7 +310,7 @@ async function getAttendanceOverview(employeeUserId) {
   }
 }
 
-async function punchIn(employeeUserId, position) {
+async function punchIn(employeeUserId, input) {
   const client = await pool.connect();
 
   try {
@@ -245,7 +322,7 @@ async function punchIn(employeeUserId, position) {
       throw new AppError(
         422,
         "OUTSIDE_SHIFT_HOURS",
-        `Punch in is available during ${context.shift_start_time.slice(0, 5)}–${context.shift_end_time.slice(0, 5)}`,
+        `Punch in is available during ${context.shift_start_time.slice(0, 5)}-${context.shift_end_time.slice(0, 5)}`,
       );
     }
 
@@ -265,7 +342,13 @@ async function punchIn(employeeUserId, position) {
       );
     }
 
-    const distance = validateGeofence(context, position);
+    const locations = await getAvailableLocations(client, context);
+    const resolved = resolvePunchLocation(
+      locations,
+      input.position,
+      input.attendanceLocationId,
+      { allowArbitraryLocation: context.employee_role === "MANAGER" },
+    );
     const inserted = await client.query(
       `INSERT INTO attendance_sessions (
          employee_user_id,
@@ -282,12 +365,12 @@ async function punchIn(employeeUserId, position) {
       [
         employeeUserId,
         context.local_date,
-        context.attendance_location_id,
+        resolved.location?.id ?? null,
         context.database_now,
-        position.latitude,
-        position.longitude,
-        position.accuracyMeters,
-        distance,
+        input.position.latitude,
+        input.position.longitude,
+        input.position.accuracyMeters,
+        resolved.distance,
       ],
     );
     const session = await getSessionById(client, inserted.rows[0].id);
@@ -301,7 +384,7 @@ async function punchIn(employeeUserId, position) {
   }
 }
 
-async function punchOut(employeeUserId, position) {
+async function punchOut(employeeUserId, input) {
   const client = await pool.connect();
 
   try {
@@ -344,7 +427,13 @@ async function punchOut(employeeUserId, position) {
         [currentSession.id, currentSession.due_at, currentSession.automatic_reason],
       );
     } else {
-      const distance = validateGeofence(context, position);
+      const locations = await getAvailableLocations(client, context);
+      const resolved = resolvePunchLocation(
+        locations,
+        input.position,
+        input.attendanceLocationId,
+        { allowArbitraryLocation: context.employee_role === "MANAGER" },
+      );
       await client.query(
         `UPDATE attendance_sessions
          SET
@@ -353,16 +442,18 @@ async function punchOut(employeeUserId, position) {
            punch_out_longitude = $4,
            punch_out_accuracy_meters = $5,
            punch_out_distance_meters = $6,
+           punch_out_attendance_location_id = $7,
            punch_out_reason = 'MANUAL',
            updated_at = CURRENT_TIMESTAMP
          WHERE id = $1`,
         [
           currentSession.id,
           context.database_now,
-          position.latitude,
-          position.longitude,
-          position.accuracyMeters,
-          distance,
+          input.position.latitude,
+          input.position.longitude,
+          input.position.accuracyMeters,
+          resolved.distance,
+          resolved.location?.id ?? null,
         ],
       );
     }

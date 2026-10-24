@@ -13,6 +13,7 @@ type GeofenceMapProps = {
   longitude?: number;
   radiusMeters: number;
   userPosition?: Coordinate | null;
+  coordinateOnly?: boolean;
 };
 
 function createLeafletHtml(
@@ -20,6 +21,7 @@ function createLeafletHtml(
   longitude: number,
   radiusMeters: number,
   userPosition?: Coordinate | null,
+  coordinateOnly = false,
 ) {
   const userLatitude = userPosition?.latitude ?? null;
   const userLongitude = userPosition?.longitude ?? null;
@@ -61,6 +63,7 @@ function createLeafletHtml(
           const assigned = [${latitude}, ${longitude}];
           const employee = ${userLatitude === null ? "null" : `[${userLatitude}, ${userLongitude}]`};
           const geofenceRadius = ${radiusMeters};
+          const coordinateOnly = ${coordinateOnly};
           const initialZoom = geofenceRadius <= 50
             ? 17
             : geofenceRadius <= 100
@@ -86,13 +89,15 @@ function createLeafletHtml(
             postToApp("tile-error", "OpenStreetMap tiles could not be downloaded on this device");
           });
 
-          const geofence = L.circle(assigned, {
-            radius: geofenceRadius,
-            color: "#059669",
-            weight: 2,
-            fillColor: "#10b981",
-            fillOpacity: 0.16
-          }).addTo(map);
+          if (!coordinateOnly) {
+            L.circle(assigned, {
+              radius: geofenceRadius,
+              color: "#059669",
+              weight: 2,
+              fillColor: "#10b981",
+              fillOpacity: 0.16
+            }).addTo(map);
+          }
 
           L.circleMarker(assigned, {
             radius: 9,
@@ -100,7 +105,9 @@ function createLeafletHtml(
             fillColor: "#047857",
             fillOpacity: 1,
             weight: 3
-          }).addTo(map).bindTooltip("Assigned attendance location");
+          }).addTo(map).bindTooltip(
+            coordinateOnly ? "Captured GPS position" : "Assigned attendance location"
+          );
 
           if (employee) {
             L.circleMarker(employee, {
@@ -148,6 +155,7 @@ export default function GeofenceMap({
   longitude,
   radiusMeters,
   userPosition,
+  coordinateOnly = false,
 }: GeofenceMapProps) {
   const [mapState, setMapState] = useState<"loading" | "ready" | "error">("loading");
   const [mapError, setMapError] = useState("");
@@ -160,9 +168,9 @@ export default function GeofenceMap({
   const html = useMemo(
     () =>
       hasCoordinates
-        ? createLeafletHtml(latitude, longitude, radiusMeters, userPosition)
+        ? createLeafletHtml(latitude, longitude, radiusMeters, userPosition, coordinateOnly)
         : "",
-    [hasCoordinates, latitude, longitude, radiusMeters, userPosition],
+    [coordinateOnly, hasCoordinates, latitude, longitude, radiusMeters, userPosition],
   );
 
   useEffect(() => {
@@ -176,10 +184,12 @@ export default function GeofenceMap({
     return (
       <View className="h-48 items-center justify-center rounded-[28px] border border-wind-100 bg-wind-50 px-6">
         <Text className="text-center text-sm font-semibold text-wind-900">
-          No attendance location assigned
+          {coordinateOnly ? "GPS position unavailable" : "No attendance location assigned"}
         </Text>
         <Text className="mt-2 text-center text-xs leading-5 text-slate-500">
-          Ask your administrator to assign a location before punching attendance.
+          {coordinateOnly
+            ? "Allow location access to capture coordinates for attendance."
+            : "Ask your administrator to assign a location before punching attendance."}
         </Text>
       </View>
     );
@@ -240,11 +250,11 @@ export default function GeofenceMap({
 
       <View className="absolute left-4 top-4 max-w-[75%] rounded-2xl border border-slate-100 bg-white px-3 py-2">
         <Text className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-          Assigned location
+          {coordinateOnly ? "GPS position" : "Assigned location"}
         </Text>
         <Text className="mt-0.5 text-sm font-bold text-wind-900">{locationName}</Text>
         <Text className="mt-0.5 text-[10px] font-semibold text-wind-700">
-          {radiusMeters} m geofence
+          {coordinateOnly ? "Coordinates captured on punch" : `${radiusMeters} m geofence`}
         </Text>
       </View>
 

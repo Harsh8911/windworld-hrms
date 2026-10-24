@@ -66,7 +66,7 @@ const env = Object.freeze({
   jwt: Object.freeze({
     accessSecret,
     refreshSecret,
-    accessTtlMinutes: positiveInteger("JWT_ACCESS_TTL_MINUTES", 15),
+    accessTtlMinutes: positiveInteger("JWT_ACCESS_TTL_MINUTES", 1440),
     refreshTtlDays: positiveInteger("JWT_REFRESH_TTL_DAYS", 7),
     issuer: process.env.JWT_ISSUER ?? "windworld-api",
     audience: process.env.JWT_AUDIENCE ?? "windworld-mobile",

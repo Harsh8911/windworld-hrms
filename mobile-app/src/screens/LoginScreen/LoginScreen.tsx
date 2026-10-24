@@ -35,6 +35,8 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
   const passwordInputRef = useRef<TextInput>(null);
 
   const handleLogin = async () => {
+    if (isSubmitting) return;
+
     const nextErrors: LoginErrors = {};
     const normalizedIdentity = identity.trim().toLowerCase();
 
@@ -173,6 +175,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
             <PrimaryButton
               disabled={isSubmitting}
               label={isSubmitting ? "Signing in..." : "Login securely"}
+              loading={isSubmitting}
               onPress={() => void handleLogin()}
             />
 

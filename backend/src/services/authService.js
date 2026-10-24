@@ -33,24 +33,16 @@ function publicUser(user) {
   };
 
   if (user.role === "EMPLOYEE" && user.employee_id) {
+    const attendanceLocations = user.attendance_locations ?? [];
     result.employeeProfile = {
       employeeId: user.employee_id,
       phone: user.phone,
       designation: user.designation,
       department: user.department,
+      employeeRole: user.employee_role,
       status: user.employment_status,
-      attendanceLocation: user.attendance_location_id
-        ? {
-            id: user.attendance_location_id,
-            name: user.attendance_location_name,
-            latitude: Number(user.attendance_location_latitude),
-            longitude: Number(user.attendance_location_longitude),
-            wifiIp: user.attendance_location_wifi_ip,
-            geofenceRadiusMeters: user.attendance_location_radius,
-            isPrimary: user.attendance_location_is_primary,
-            isActive: user.attendance_location_is_active,
-          }
-        : null,
+      attendanceLocations,
+      attendanceLocation: attendanceLocations[0] ?? null,
     };
   }
 
@@ -197,19 +189,29 @@ async function getUserById(userId) {
        profiles.phone,
        profiles.designation,
        profiles.department,
+       profiles.employee_role,
        profiles.employment_status,
-       profiles.attendance_location_id,
-       locations.name AS attendance_location_name,
-       locations.latitude AS attendance_location_latitude,
-       locations.longitude AS attendance_location_longitude,
-       locations.wifi_ip AS attendance_location_wifi_ip,
-       locations.geofence_radius_meters AS attendance_location_radius,
-       locations.is_primary AS attendance_location_is_primary,
-       locations.is_active AS attendance_location_is_active
+       COALESCE((
+         SELECT JSON_AGG(
+           JSON_BUILD_OBJECT(
+             'id', locations.id,
+             'name', locations.name,
+             'latitude', locations.latitude::float8,
+             'longitude', locations.longitude::float8,
+             'wifiIp', locations.wifi_ip::text,
+             'geofenceRadiusMeters', locations.geofence_radius_meters,
+             'isPrimary', locations.is_primary,
+             'isActive', locations.is_active
+           )
+           ORDER BY locations.name
+         )
+         FROM employee_attendance_locations AS assignments
+         JOIN attendance_locations AS locations
+           ON locations.id = assignments.attendance_location_id
+         WHERE assignments.employee_user_id = profiles.user_id
+       ), '[]'::json) AS attendance_locations
      FROM users
      LEFT JOIN employee_profiles AS profiles ON profiles.user_id = users.id
-     LEFT JOIN attendance_locations AS locations
-       ON locations.id = profiles.attendance_location_id
      WHERE users.id = $1 AND users.is_active = TRUE`,
     [userId],
   );

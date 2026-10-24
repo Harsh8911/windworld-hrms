@@ -4,6 +4,8 @@ const { pool } = require("../db/pool");
 let employeeUserId;
 let customEmployeeUserId;
 let locationId;
+let secondLocationId;
+let unassignedLocationId;
 let initialEmployeeCounterValue;
 let initialShift;
 
@@ -48,7 +50,8 @@ async function main() {
     );
     initialEmployeeCounterValue = initialEmployeeCounter.rows[0].last_value;
     const initialShiftResult = await pool.query(
-      `SELECT start_time::text, end_time::text, max_duration_minutes
+      `SELECT name, start_time::text, end_time::text, max_duration_minutes,
+              timezone, updated_by
        FROM work_shifts
        WHERE id = '00000000-0000-0000-0000-000000000001'`,
     );
@@ -56,7 +59,74 @@ async function main() {
     await pool.query(
       `UPDATE work_shifts
        SET start_time = '00:00:00', end_time = '23:59:59', max_duration_minutes = 480
-       WHERE id = '00000000-0000-0000-0000-000000000001'`,
+      WHERE id = '00000000-0000-0000-0000-000000000001'`,
+    );
+
+    const adminSettings = await request("/admin/settings", {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    assert(
+      adminSettings.status === 200 &&
+        adminSettings.body.shift.startTime === "00:00" &&
+        adminSettings.body.shift.endTime === "23:59" &&
+        adminSettings.body.shift.maxDurationMinutes === 480,
+      "Administrator settings could not be loaded",
+    );
+    const invalidShiftSettings = await request("/admin/settings/shift", {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({
+        name: `Integration Shift ${stamp}`,
+        startTime: "10:00",
+        endTime: "18:00",
+        maxDurationMinutes: 600,
+        timezone: "Asia/Kolkata",
+      }),
+    });
+    assert(
+      invalidShiftSettings.status === 400 &&
+        invalidShiftSettings.body.error.code === "VALIDATION_ERROR",
+      "Invalid shift duration was accepted",
+    );
+    const invalidTimezoneSettings = await request("/admin/settings/shift", {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({
+        name: "General Shift",
+        startTime: "00:00",
+        endTime: "23:59",
+        maxDurationMinutes: 480,
+        timezone: "Invalid/Timezone",
+      }),
+    });
+    assert(
+      invalidTimezoneSettings.status === 422 &&
+        invalidTimezoneSettings.body.error.code === "INVALID_TIMEZONE",
+      "Invalid shift timezone was accepted",
+    );
+    const updatedSettings = await request("/admin/settings/shift", {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({
+        name: "General Shift",
+        startTime: "00:00",
+        endTime: "23:59",
+        maxDurationMinutes: 480,
+        timezone: "Asia/Kolkata",
+      }),
+    });
+    assert(
+      updatedSettings.status === 200 &&
+        updatedSettings.body.shift.name === "General Shift" &&
+        updatedSettings.body.shift.timezone === "Asia/Kolkata",
+      "Administrator shift customization was not persisted",
+    );
+    const shiftAudit = await pool.query(
+      "SELECT updated_by FROM work_shifts WHERE id = '00000000-0000-0000-0000-000000000001'",
+    );
+    assert(
+      shiftAudit.rows[0].updated_by === adminLogin.body.user.id,
+      "Shift customization did not record the administrator audit identity",
     );
 
     const location = await request("/admin/attendance-locations", {
@@ -73,6 +143,34 @@ async function main() {
     });
     assert(location.status === 201, "Attendance-location creation failed");
     locationId = location.body.location.id;
+
+    const secondLocation = await request("/admin/attendance-locations", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({
+        name: `API Test Secondary ${stamp}`,
+        latitude: 18.52043,
+        longitude: 73.856744,
+        geofenceRadiusMeters: 500,
+        isPrimary: false,
+      }),
+    });
+    assert(secondLocation.status === 201, "Second attendance-location creation failed");
+    secondLocationId = secondLocation.body.location.id;
+
+    const unassignedLocation = await request("/admin/attendance-locations", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({
+        name: `API Test Unassigned ${stamp}`,
+        latitude: 17.385,
+        longitude: 78.4867,
+        geofenceRadiusMeters: 500,
+        isPrimary: false,
+      }),
+    });
+    assert(unassignedLocation.status === 201, "Unassigned attendance-location creation failed");
+    unassignedLocationId = unassignedLocation.body.location.id;
 
     const employeeIdPreviews = await Promise.all([
       request("/admin/employees/next-id", {
@@ -96,12 +194,24 @@ async function main() {
       fullName: "API Test Employee",
       employeeId: employeeIdPreviews[0].body.employeeId,
       email: `api-test-${stamp}@windworld.com`,
-      phone: "+91 90000 00000",
+      phone: "9000000000",
       designation: "Tester",
       department: "Quality",
       password: "employee@123",
-      attendanceLocationId: locationId,
+      employeeRole: "EMPLOYEE",
+      attendanceLocationIds: [locationId, secondLocationId],
     };
+    const invalidPhoneEmployee = await request("/admin/employees", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({ ...employeeInput, phone: "12345" }),
+    });
+    assert(
+      invalidPhoneEmployee.status === 400 &&
+        invalidPhoneEmployee.body.error.code === "VALIDATION_ERROR",
+      "Invalid employee phone number was accepted",
+    );
+
     const employee = await request("/admin/employees", {
       method: "POST",
       headers: { Authorization: `Bearer ${adminToken}` },
@@ -109,7 +219,13 @@ async function main() {
     });
     assert(employee.status === 201, "Employee creation failed");
     employeeUserId = employee.body.employee.id;
-    assert(employee.body.employee.attendanceLocation.id === locationId, "Employee response contract is invalid");
+    assert(
+      employee.body.employee.employeeRole === "EMPLOYEE" &&
+        employee.body.employee.attendanceLocations.length === 2 &&
+        employee.body.employee.attendanceLocations.some((item) => item.id === locationId) &&
+        employee.body.employee.attendanceLocations.some((item) => item.id === secondLocationId),
+      "Employee role/location response contract is invalid",
+    );
     assert(!("password" in employee.body.employee), "Employee response exposed a password");
     const storedEmployee = await pool.query(
       `SELECT users.password_hash, users.username, profiles.employee_id
@@ -127,6 +243,50 @@ async function main() {
       storedEmployee.rows[0].username === employeeInput.employeeId &&
         storedEmployee.rows[0].employee_id === employeeInput.employeeId,
       "Employee login username and profile ID are inconsistent",
+    );
+
+    const updatedEmployee = await request(`/admin/employees/${employeeUserId}`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({
+        fullName: "API Test Employee Updated",
+        email: employeeInput.email,
+        phone: "9111111111",
+        designation: "Senior Tester",
+        department: "Quality",
+        employeeRole: "EMPLOYEE",
+        attendanceLocationIds: [locationId, secondLocationId],
+      }),
+    });
+    assert(
+      updatedEmployee.status === 200 &&
+        updatedEmployee.body.employee.fullName === "API Test Employee Updated" &&
+        updatedEmployee.body.employee.phone === "9111111111",
+      "Administrator employee edit failed",
+    );
+
+    const archivedEmployee = await request(`/admin/employees/${employeeUserId}/archive`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({ archived: true }),
+    });
+    assert(
+      archivedEmployee.status === 200 && archivedEmployee.body.employee.isActive === false,
+      "Employee archive failed",
+    );
+    const archivedLogin = await request("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ identity: employeeInput.employeeId, password: employeeInput.password }),
+    });
+    assert(archivedLogin.status === 401, "Archived employee was allowed to log in");
+    const restoredEmployee = await request(`/admin/employees/${employeeUserId}/archive`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({ archived: false }),
+    });
+    assert(
+      restoredEmployee.status === 200 && restoredEmployee.body.employee.isActive === true,
+      "Employee restore failed",
     );
 
     const nextEmployeeId = await request("/admin/employees/next-id", {
@@ -149,13 +309,18 @@ async function main() {
         designation: "Tester",
         department: "Quality",
         password: "employee@123",
-        attendanceLocationId: locationId,
+        employeeRole: "MANAGER",
+        attendanceLocationIds: [],
       }),
     });
     assert(customEmployee.status === 201, "Custom employee ID was rejected");
     assert(
       customEmployee.body.employee.employeeId === `CUSTOM-${stamp}`,
       "Custom employee ID was not preserved",
+    );
+    assert(
+      customEmployee.body.employee.employeeRole === "MANAGER",
+      "Manager role was not preserved",
     );
     customEmployeeUserId = customEmployee.body.employee.id;
 
@@ -193,6 +358,22 @@ async function main() {
       employeeMe.body.user.employeeProfile?.employeeId === employeeInput.employeeId,
       "Employee /me profile is missing",
     );
+    assert(
+      employeeMe.body.user.employeeProfile?.attendanceLocations?.length === 2,
+      "Employee /me multiple-location contract is missing",
+    );
+
+    const selfProfileUpdate = await request("/employee/profile", {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${employeeLogin.body.accessToken}` },
+      body: JSON.stringify({ fullName: "Employee Self Updated", phone: "9222222222" }),
+    });
+    assert(
+      selfProfileUpdate.status === 200 &&
+        selfProfileUpdate.body.user.fullName === "Employee Self Updated" &&
+        selfProfileUpdate.body.user.employeeProfile.phone === "9222222222",
+      "Employee self-profile edit failed",
+    );
 
     const employeeEmailLogin = await request("/auth/login", {
       method: "POST",
@@ -212,7 +393,8 @@ async function main() {
     assert(initialAttendance.status === 200, "Employee attendance overview failed");
     assert(
       initialAttendance.body.shift.name === "General Shift" &&
-        initialAttendance.body.sessions.length === 0,
+        initialAttendance.body.sessions.length === 0 &&
+        initialAttendance.body.availableLocations.length === 2,
       "Employee attendance overview contains non-database data",
     );
 
@@ -222,24 +404,68 @@ async function main() {
       body: JSON.stringify({ latitude: 20.094833, longitude: 74.748011, accuracyMeters: 5 }),
     });
     assert(
-      outsidePunchIn.status === 422 && outsidePunchIn.body.error.code === "OUTSIDE_GEOFENCE",
+      outsidePunchIn.status === 422 && outsidePunchIn.body.error.code === "LOCATION_NOT_RECOGNIZED",
       "An out-of-geofence punch in was accepted",
+    );
+
+    const invalidManualPunchIn = await request("/employee/attendance/punch-in", {
+      method: "POST",
+      headers: employeeAuthorization,
+      body: JSON.stringify({
+        latitude: 20.094833,
+        longitude: 74.748011,
+        accuracyMeters: 5,
+        attendanceLocationId: secondLocationId,
+      }),
+    });
+    assert(
+      invalidManualPunchIn.status === 422 &&
+        invalidManualPunchIn.body.error.code === "OUTSIDE_GEOFENCE",
+      "Manual location selection bypassed the geofence",
+    );
+
+    const forbiddenLocationPunchIn = await request("/employee/attendance/punch-in", {
+      method: "POST",
+      headers: employeeAuthorization,
+      body: JSON.stringify({
+        latitude: 17.385,
+        longitude: 78.4867,
+        accuracyMeters: 5,
+        attendanceLocationId: unassignedLocationId,
+      }),
+    });
+    assert(
+      forbiddenLocationPunchIn.status === 422 &&
+        forbiddenLocationPunchIn.body.error.code === "ATTENDANCE_LOCATION_NOT_ALLOWED",
+      "Employee was allowed to use an unassigned attendance location",
     );
 
     const punchInResponse = await request("/employee/attendance/punch-in", {
       method: "POST",
       headers: employeeAuthorization,
-      body: JSON.stringify({ latitude: 19.094833, longitude: 74.748011, accuracyMeters: 5 }),
+      body: JSON.stringify({
+        latitude: 18.52043,
+        longitude: 73.856744,
+        accuracyMeters: 5,
+        attendanceLocationId: secondLocationId,
+      }),
     });
     assert(
-      punchInResponse.status === 201 && punchInResponse.body.session.status === "IN_PROGRESS",
+      punchInResponse.status === 201 &&
+        punchInResponse.body.session.status === "IN_PROGRESS" &&
+        punchInResponse.body.session.location.id === secondLocationId,
       "A valid in-geofence punch in was not persisted",
     );
 
     const duplicatePunchIn = await request("/employee/attendance/punch-in", {
       method: "POST",
       headers: employeeAuthorization,
-      body: JSON.stringify({ latitude: 19.094833, longitude: 74.748011, accuracyMeters: 5 }),
+      body: JSON.stringify({
+        latitude: 19.094833,
+        longitude: 74.748011,
+        accuracyMeters: 5,
+        attendanceLocationId: locationId,
+      }),
     });
     assert(
       duplicatePunchIn.status === 409 && duplicatePunchIn.body.error.code === "ALREADY_PUNCHED_IN",
@@ -252,7 +478,7 @@ async function main() {
       body: JSON.stringify({ latitude: 20.094833, longitude: 74.748011, accuracyMeters: 5 }),
     });
     assert(
-      outsidePunchOut.status === 422 && outsidePunchOut.body.error.code === "OUTSIDE_GEOFENCE",
+      outsidePunchOut.status === 422 && outsidePunchOut.body.error.code === "LOCATION_NOT_RECOGNIZED",
       "An out-of-geofence punch out was accepted",
     );
 
@@ -264,7 +490,8 @@ async function main() {
     assert(
       punchOutResponse.status === 200 &&
         punchOutResponse.body.session.status === "COMPLETED" &&
-        punchOutResponse.body.session.punchOutReason === "MANUAL",
+        punchOutResponse.body.session.punchOutReason === "MANUAL" &&
+        punchOutResponse.body.session.punchOutLocation.id === locationId,
       "A valid in-geofence punch out was not persisted",
     );
 
@@ -288,7 +515,7 @@ async function main() {
         adminDailyAttendance.body.summary.totalRecords === 1 &&
         adminDailyAttendance.body.logs[0].employee.employeeId === employeeInput.employeeId &&
         adminDailyAttendance.body.logs[0].status === "COMPLETED" &&
-        adminDailyAttendance.body.logs[0].location.id === locationId,
+        adminDailyAttendance.body.logs[0].location.id === secondLocationId,
       "Administrator daily attendance report contract is invalid",
     );
 
@@ -311,12 +538,41 @@ async function main() {
     const customAuthorization = {
       Authorization: `Bearer ${customEmployeeLogin.body.accessToken}`,
     };
+    const managerAttendance = await request("/employee/attendance", {
+      headers: customAuthorization,
+    });
+    assert(
+      managerAttendance.status === 200 &&
+        managerAttendance.body.employeeRole === "MANAGER" &&
+        managerAttendance.body.availableLocations.some((item) => item.id === locationId),
+      "Manager was not granted access to every active attendance location",
+    );
     const customPunchIn = await request("/employee/attendance/punch-in", {
       method: "POST",
       headers: customAuthorization,
-      body: JSON.stringify({ latitude: 19.094833, longitude: 74.748011, accuracyMeters: 5 }),
+      body: JSON.stringify({ latitude: 0, longitude: 0, accuracyMeters: 5 }),
     });
-    assert(customPunchIn.status === 201, "Auto-checkout test punch in failed");
+    assert(
+      customPunchIn.status === 201 &&
+        customPunchIn.body.session.location.id === null &&
+        customPunchIn.body.session.location.name === "Current GPS location",
+      "Manager coordinate-only punch was not accepted outside configured geofences",
+    );
+    const storedManagerPunch = await pool.query(
+      `SELECT punch_in_latitude, punch_in_longitude, punch_in_accuracy_meters,
+              attendance_location_id, punch_in_distance_meters
+       FROM attendance_sessions
+       WHERE id = $1`,
+      [customPunchIn.body.session.id],
+    );
+    assert(
+      Number(storedManagerPunch.rows[0].punch_in_latitude) === 0 &&
+        Number(storedManagerPunch.rows[0].punch_in_longitude) === 0 &&
+        Number(storedManagerPunch.rows[0].punch_in_accuracy_meters) === 5 &&
+        storedManagerPunch.rows[0].attendance_location_id === null &&
+        storedManagerPunch.rows[0].punch_in_distance_meters === null,
+      "Manager punch coordinates were not stored without a configured location",
+    );
     await pool.query(
       "UPDATE work_shifts SET max_duration_minutes = 1 WHERE id = '00000000-0000-0000-0000-000000000001'",
     );
@@ -333,9 +589,33 @@ async function main() {
         autoClosedAttendance.body.todaySession.punchOutReason === "AUTO_MAX_DURATION",
       "The maximum-duration auto punch out did not persist",
     );
+    const managerAdminLog = await request(
+      `/admin/attendance-logs?period=daily&search=${encodeURIComponent(`CUSTOM-${stamp}`)}`,
+      { headers: { Authorization: `Bearer ${adminToken}` } },
+    );
+    assert(
+      managerAdminLog.status === 200 &&
+        managerAdminLog.body.logs[0]?.location.id === null &&
+        managerAdminLog.body.logs[0]?.punchIn.distanceMeters === null &&
+        managerAdminLog.body.logs[0]?.punchIn.latitude === 0 &&
+        managerAdminLog.body.logs[0]?.punchIn.longitude === 0,
+      "Manager coordinate-only punch was not available in the administrator report",
+    );
     await pool.query(
       "UPDATE work_shifts SET max_duration_minutes = 480 WHERE id = '00000000-0000-0000-0000-000000000001'",
     );
+
+    const deletedEmployee = await request(`/admin/employees/${customEmployeeUserId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    assert(deletedEmployee.status === 204, "Permanent employee deletion failed");
+    const deletedEmployeeLogin = await request("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ identity: `CUSTOM-${stamp}`, password: "employee@123" }),
+    });
+    assert(deletedEmployeeLogin.status === 401, "Deleted employee was allowed to log in");
+    customEmployeeUserId = undefined;
 
     const forbidden = await request("/admin/employees", {
       headers: { Authorization: `Bearer ${employeeLogin.body.accessToken}` },
@@ -384,7 +664,7 @@ async function main() {
     });
     assert(inactiveRefresh.status === 401, "Inactive refresh token was accepted");
 
-    console.log("Integration checks passed: admin auth, employee IDs, employee login, real database attendance logs, admin daily/monthly attendance reports, shift data, geofence rejection, persisted punch in/out, duplicate prevention, automatic maximum-duration checkout, password hashing, refresh rotation, validation, conflicts, role authorization, and active-account enforcement.");
+    console.log("Integration checks passed: admin auth, employee IDs, admin edit/archive/restore/delete, employee self-edit, employee/manager roles, assigned and manager location access, validated admin shift customization and audit tracking, employee login, real database attendance logs, admin daily/monthly attendance reports, shift data, location recognition, persisted punch in/out, duplicate prevention, automatic maximum-duration checkout, password hashing, refresh rotation, validation, conflicts, role authorization, and active-account enforcement.");
   } finally {
     if (employeeUserId) {
       await pool.query("DELETE FROM users WHERE id = $1", [employeeUserId]);
@@ -395,6 +675,12 @@ async function main() {
     if (locationId) {
       await pool.query("DELETE FROM attendance_locations WHERE id = $1", [locationId]);
     }
+    if (secondLocationId) {
+      await pool.query("DELETE FROM attendance_locations WHERE id = $1", [secondLocationId]);
+    }
+    if (unassignedLocationId) {
+      await pool.query("DELETE FROM attendance_locations WHERE id = $1", [unassignedLocationId]);
+    }
     if (initialEmployeeCounterValue !== undefined) {
       await pool.query(
         "UPDATE employee_id_counter SET last_value = $1 WHERE id = 1",
@@ -404,9 +690,17 @@ async function main() {
     if (initialShift) {
       await pool.query(
         `UPDATE work_shifts
-         SET start_time = $1, end_time = $2, max_duration_minutes = $3
+         SET name = $1, start_time = $2, end_time = $3,
+             max_duration_minutes = $4, timezone = $5, updated_by = $6
          WHERE id = '00000000-0000-0000-0000-000000000001'`,
-        [initialShift.start_time, initialShift.end_time, initialShift.max_duration_minutes],
+        [
+          initialShift.name,
+          initialShift.start_time,
+          initialShift.end_time,
+          initialShift.max_duration_minutes,
+          initialShift.timezone,
+          initialShift.updated_by,
+        ],
       );
     }
     await pool.end();

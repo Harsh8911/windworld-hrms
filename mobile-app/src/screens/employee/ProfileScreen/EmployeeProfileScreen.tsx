@@ -1,7 +1,9 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useEffect, useState } from "react";
-import { RefreshControl, ScrollView, Text, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 
-import { ApiError, getCurrentUser } from "../../../services/api";
+import FormField from "../../../components/FormField/FormField";
+import { ApiError, getCurrentUser, updateOwnProfile } from "../../../services/api";
 import type { AuthenticatedUser } from "../../../types/api";
 
 function formatStatus(status: string | undefined) {
@@ -17,12 +19,21 @@ export default function EmployeeProfileScreen() {
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
   const [error, setError] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [draftFullName, setDraftFullName] = useState("");
+  const [draftPhone, setDraftPhone] = useState("");
 
   const loadProfile = useCallback(async (refreshing = false) => {
     if (refreshing) setIsRefreshing(true);
 
     try {
-      setUser(await getCurrentUser());
+      const currentUser = await getCurrentUser();
+      setUser(currentUser);
+      if (!isEditing) {
+        setDraftFullName(currentUser.fullName);
+        setDraftPhone(currentUser.employeeProfile?.phone ?? "");
+      }
       setError("");
     } catch (requestError) {
       setError(
@@ -33,13 +44,14 @@ export default function EmployeeProfileScreen() {
     } finally {
       setIsRefreshing(false);
     }
-  }, []);
+  }, [isEditing]);
 
   useEffect(() => {
     void loadProfile();
   }, [loadProfile]);
 
   const profile = user?.employeeProfile;
+  const attendanceLocations = profile?.attendanceLocations ?? [];
   const initials =
     user?.fullName
       .split(/\s+/)
@@ -47,11 +59,51 @@ export default function EmployeeProfileScreen() {
       .map((part) => part[0]?.toUpperCase())
       .join("") || "WW";
   const details = [
+    {
+      label: "Role",
+      value: profile
+        ? profile.employeeRole === "MANAGER"
+          ? "Manager"
+          : "Employee"
+        : undefined,
+    },
     { label: "Work email", value: user?.email },
     { label: "Phone number", value: profile?.phone },
     { label: "Designation", value: profile?.designation },
     { label: "Department", value: profile?.department },
   ];
+
+  const saveProfile = async () => {
+    if (draftFullName.trim().length < 2) {
+      setError("Full name must contain at least 2 characters.");
+      return;
+    }
+    if (draftPhone && !/^\d{10}$/.test(draftPhone)) {
+      setError("Phone number must contain exactly 10 digits.");
+      return;
+    }
+
+    setIsSaving(true);
+    setError("");
+    try {
+      const response = await updateOwnProfile({
+        fullName: draftFullName.trim(),
+        phone: draftPhone || null,
+      });
+      setUser(response.user);
+      setDraftFullName(response.user.fullName);
+      setDraftPhone(response.user.employeeProfile?.phone ?? "");
+      setIsEditing(false);
+    } catch (requestError) {
+      setError(
+        requestError instanceof ApiError
+          ? requestError.message
+          : "Unable to update your profile.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <ScrollView
@@ -103,12 +155,70 @@ export default function EmployeeProfileScreen() {
         </View>
       ) : null}
 
-      <View className="mb-4 mt-8">
-        <Text className="text-xl font-bold text-slate-950">Work information</Text>
-        <Text className="mt-1 text-xs text-slate-500">Synced from your employee record</Text>
+      <View className="mb-4 mt-8 flex-row items-end justify-between">
+        <View>
+          <Text className="text-xl font-bold text-slate-950">Work information</Text>
+          <Text className="mt-1 text-xs text-slate-500">Synced from your employee record</Text>
+        </View>
+        {!isEditing ? (
+          <Pressable
+            accessibilityHint="Allows you to update your name and phone number"
+            accessibilityLabel="Edit profile"
+            accessibilityRole="button"
+            className="h-11 w-11 items-center justify-center rounded-[14px] border border-wind-100 bg-wind-50 active:bg-wind-100"
+            onPress={() => {
+              setDraftFullName(user?.fullName ?? "");
+              setDraftPhone(profile?.phone ?? "");
+              setIsEditing(true);
+              setError("");
+            }}
+          >
+            <Ionicons color="#047857" name="create-outline" size={22} />
+          </Pressable>
+        ) : null}
       </View>
 
-      <View className="overflow-hidden rounded-[24px] border border-slate-200 bg-white">
+      {isEditing ? (
+        <View className="rounded-[24px] border border-slate-200 bg-white p-5">
+          <FormField
+            editable={!isSaving}
+            label="Full name *"
+            onChangeText={setDraftFullName}
+            value={draftFullName}
+          />
+          <FormField
+            editable={!isSaving}
+            helperText="Enter exactly 10 digits without +91."
+            keyboardType="phone-pad"
+            label="Phone number"
+            maxLength={10}
+            onChangeText={(value) => setDraftPhone(value.replace(/\D/g, "").slice(0, 10))}
+            value={draftPhone}
+          />
+          <View className="flex-row gap-3">
+            <Pressable
+              className="min-h-12 flex-1 items-center justify-center rounded-[15px] border border-slate-300"
+              disabled={isSaving}
+              onPress={() => {
+                setIsEditing(false);
+                setError("");
+              }}
+            >
+              <Text className="text-xs font-bold text-slate-700">Cancel</Text>
+            </Pressable>
+            <Pressable
+              className={`min-h-12 flex-1 items-center justify-center rounded-[15px] ${isSaving ? "bg-wind-600" : "bg-wind-700"}`}
+              disabled={isSaving}
+              onPress={() => void saveProfile()}
+            >
+              <Text className="text-xs font-bold text-white">
+                {isSaving ? "Saving..." : "Save profile"}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : (
+        <View className="overflow-hidden rounded-[24px] border border-slate-200 bg-white">
         {details.map((detail, index) => (
           <View
             key={detail.label}
@@ -125,7 +235,8 @@ export default function EmployeeProfileScreen() {
             </View>
           </View>
         ))}
-      </View>
+        </View>
+      )}
 
       <View className="mb-4 mt-8">
         <Text className="text-xl font-bold text-slate-950">Attendance assignment</Text>
@@ -141,31 +252,33 @@ export default function EmployeeProfileScreen() {
           </View>
           <View className="ml-3 flex-1">
             <Text className="text-base font-bold text-slate-950">
-              {profile?.attendanceLocation?.name ?? "No location assigned"}
+              {profile?.employeeRole === "MANAGER"
+                ? "Unrestricted manager access"
+                : attendanceLocations.length
+                  ? `${attendanceLocations.length} assigned location${attendanceLocations.length === 1 ? "" : "s"}`
+                  : "No location assigned"}
             </Text>
             <Text className="mt-1 text-xs leading-5 text-slate-500">
-              {profile?.attendanceLocation
-                ? `${profile.attendanceLocation.geofenceRadiusMeters} meter secure attendance radius`
+              {profile?.employeeRole === "MANAGER"
+                ? "You may punch outside configured geofences."
+                : attendanceLocations.length
+                ? "GPS verifies that you are inside one of these geofences."
                 : "Contact your administrator before your first punch."}
             </Text>
           </View>
         </View>
-        {profile?.attendanceLocation ? (
-          <View className="mt-5 flex-row border-t border-slate-100 pt-4">
-            <View className="flex-1">
-              <Text className="text-[10px] font-semibold text-slate-400">LATITUDE</Text>
-              <Text className="mt-1 text-xs font-bold text-slate-700">
-                {profile.attendanceLocation.latitude.toFixed(6)}
-              </Text>
-            </View>
-            <View className="flex-1">
-              <Text className="text-[10px] font-semibold text-slate-400">LONGITUDE</Text>
-              <Text className="mt-1 text-xs font-bold text-slate-700">
-                {profile.attendanceLocation.longitude.toFixed(6)}
-              </Text>
-            </View>
+        {attendanceLocations.map((location) => (
+          <View
+            key={location.id}
+            className="mt-4 flex-row items-center border-t border-slate-100 pt-4"
+          >
+            <View className="h-2.5 w-2.5 rounded-full bg-wind-600" />
+            <Text className="ml-3 flex-1 text-sm font-bold text-slate-700">{location.name}</Text>
+            <Text className="text-xs font-semibold text-slate-500">
+              {location.geofenceRadiusMeters} m
+            </Text>
           </View>
-        ) : null}
+        ))}
       </View>
     </ScrollView>
   );

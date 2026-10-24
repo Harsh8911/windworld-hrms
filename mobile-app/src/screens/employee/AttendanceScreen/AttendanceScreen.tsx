@@ -159,7 +159,11 @@ export default function AttendanceScreen() {
     return () => clearInterval(refreshTimer);
   }, [loadAttendance]);
 
-  const assignedLocation = user?.employeeProfile?.attendanceLocation;
+  const overviewLocations = overview?.availableLocations ?? [];
+  const assignedLocations = overviewLocations.length
+    ? overviewLocations
+    : user?.employeeProfile?.attendanceLocations ?? [];
+  const assignedLocation = assignedLocations[0];
   const todaySession = overview?.todaySession;
   const timezone = overview?.shift.timezone ?? "Asia/Kolkata";
   const records = useMemo(
@@ -263,31 +267,61 @@ export default function AttendanceScreen() {
 
       <View className="mb-4 mt-8 flex-row items-end justify-between">
         <View>
-          <Text className="text-xl font-bold text-slate-950">Verify location</Text>
-          <Text className="mt-1 text-xs text-slate-500">You must be inside the green boundary</Text>
+          <Text className="text-xl font-bold text-slate-950">
+            {overview?.employeeRole === "MANAGER" ? "Punch location policy" : "Verify location"}
+          </Text>
+          <Text className="mt-1 text-xs text-slate-500">
+            {overview?.employeeRole === "MANAGER"
+              ? "Your GPS coordinates are captured wherever you punch"
+              : "You must be inside the green boundary"}
+          </Text>
         </View>
-        <View className="rounded-full bg-wind-50 px-3 py-1.5">
-          <Text className="text-[10px] font-bold text-wind-700">ASSIGNED AREA</Text>
-        </View>
+        {overview?.employeeRole !== "MANAGER" ? (
+          <View className="rounded-full bg-wind-50 px-3 py-1.5">
+            <Text className="text-[10px] font-bold text-wind-700">ASSIGNED AREAS</Text>
+          </View>
+        ) : null}
       </View>
 
-      <GeofenceMap
-        latitude={assignedLocation?.latitude}
-        locationName={assignedLocation?.name ?? "No location assigned"}
-        longitude={assignedLocation?.longitude}
-        radiusMeters={assignedLocation?.geofenceRadiusMeters ?? 0}
-      />
+      {overview?.employeeRole === "MANAGER" ? (
+        <View className="h-48 items-center justify-center rounded-[28px] border border-wind-100 bg-wind-50 px-6">
+          <View className="h-12 w-12 items-center justify-center rounded-[18px] bg-white">
+            <View className="h-4 w-4 items-center justify-center rounded-full border-2 border-wind-700">
+              <View className="h-1.5 w-1.5 rounded-full bg-wind-700" />
+            </View>
+          </View>
+          <Text className="mt-4 text-center text-sm font-bold text-wind-900">
+            Coordinate-only attendance enabled
+          </Text>
+          <Text className="mt-2 text-center text-xs leading-5 text-slate-600">
+            No administrator-created location is needed. Location permission is still required.
+          </Text>
+        </View>
+      ) : (
+        <GeofenceMap
+          latitude={assignedLocation?.latitude}
+          locationName={assignedLocation?.name ?? "No location assigned"}
+          longitude={assignedLocation?.longitude}
+          radiusMeters={assignedLocation?.geofenceRadiusMeters ?? 0}
+        />
+      )}
 
       <View className="mt-4 rounded-[24px] border border-slate-200 bg-white p-4">
         <View className="flex-row items-center">
           <View className={`h-3 w-3 rounded-full ${assignedLocation ? "bg-emerald-500" : "bg-red-500"}`} />
           <View className="ml-3 flex-1">
             <Text className="text-sm font-bold text-slate-950">
-              {assignedLocation?.name ?? "Location not assigned"}
+              {overview?.employeeRole === "MANAGER"
+                ? "Punch from any GPS location"
+                : assignedLocations.length
+                ? `${assignedLocations.length} location${assignedLocations.length === 1 ? "" : "s"} available`
+                : "Location not assigned"}
             </Text>
             <Text className="mt-1 text-xs leading-5 text-slate-500">
-              {assignedLocation
-                ? `${assignedLocation.geofenceRadiusMeters} meter attendance radius · Punch controls are available on Home.`
+              {overview?.employeeRole === "MANAGER"
+                ? "Home, client sites, and field locations are allowed; coordinates are retained for audit."
+                : assignedLocation
+                ? `${assignedLocations.map((location) => location.name).join(", ")} · Punch controls are available on Home.`
                 : "Contact your administrator to configure attendance."}
             </Text>
           </View>

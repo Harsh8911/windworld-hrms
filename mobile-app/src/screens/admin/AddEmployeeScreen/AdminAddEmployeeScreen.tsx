@@ -9,7 +9,7 @@ import {
   getAttendanceLocations,
   getNextEmployeeId,
 } from "../../../services/api";
-import type { AttendanceLocation } from "../../../types/api";
+import type { AttendanceLocation, EmployeeRole } from "../../../types/api";
 
 type EmployeeForm = {
   fullName: string;
@@ -36,7 +36,8 @@ const initialForm: EmployeeForm = {
 export default function AdminAddEmployeeScreen({ onCreated }: Props) {
   const [form, setForm] = useState(initialForm);
   const [locations, setLocations] = useState<AttendanceLocation[]>([]);
-  const [locationId, setLocationId] = useState("");
+  const [locationIds, setLocationIds] = useState<string[]>([]);
+  const [employeeRole, setEmployeeRole] = useState<EmployeeRole>("EMPLOYEE");
   const [isLocationDropdownOpen, setIsLocationDropdownOpen] = useState(false);
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -53,9 +54,8 @@ export default function AdminAddEmployeeScreen({ onCreated }: Props) {
         if (locationsResult.status === "fulfilled") {
           const nextLocations = locationsResult.value.locations;
           setLocations(nextLocations);
-          setLocationId(
-            (nextLocations.find((item) => item.isPrimary) ?? nextLocations[0])?.id ?? "",
-          );
+          const defaultLocation = nextLocations.find((item) => item.isPrimary) ?? nextLocations[0];
+          setLocationIds(defaultLocation ? [defaultLocation.id] : []);
         }
 
         if (employeeIdResult.status === "fulfilled") {
@@ -113,12 +113,20 @@ export default function AdminAddEmployeeScreen({ onCreated }: Props) {
       setError("Employee ID may contain letters, numbers, hyphens, and underscores.");
       return;
     }
+    if (form.phone && !/^\d{10}$/.test(form.phone)) {
+      setError("Phone number must contain exactly 10 digits.");
+      return;
+    }
     if (form.password.length < 8) {
       setError("Password must contain at least 8 characters.");
       return;
     }
     if (form.password.length > 72) {
       setError("Password must not exceed 72 characters.");
+      return;
+    }
+    if (employeeRole === "EMPLOYEE" && locationIds.length === 0) {
+      setError("Assign at least one attendance location to an employee.");
       return;
     }
 
@@ -133,9 +141,12 @@ export default function AdminAddEmployeeScreen({ onCreated }: Props) {
         designation: form.designation.trim(),
         department: form.department.trim(),
         password: form.password,
-        attendanceLocationId: locationId || undefined,
+        employeeRole,
+        attendanceLocationIds: locationIds,
       });
       setForm(initialForm);
+      setEmployeeRole("EMPLOYEE");
+      setLocationIds([]);
       setShowPassword(false);
       onCreated?.();
     } catch (requestError) {
@@ -149,7 +160,7 @@ export default function AdminAddEmployeeScreen({ onCreated }: Props) {
     }
   };
 
-  const selectedLocation = locations.find((item) => item.id === locationId);
+  const selectedLocations = locations.filter((item) => locationIds.includes(item.id));
 
   return (
     <ScrollView
@@ -222,10 +233,12 @@ export default function AdminAddEmployeeScreen({ onCreated }: Props) {
         />
         <FormField
           editable={!isSubmitting}
+          helperText="Enter exactly 10 digits without +91, spaces, or punctuation."
           keyboardType="phone-pad"
           label="Phone number"
-          onChangeText={(value) => updateField("phone", value)}
-          placeholder="+91 98765 43210"
+          maxLength={10}
+          onChangeText={(value) => updateField("phone", value.replace(/\D/g, "").slice(0, 10))}
+          placeholder="9876543210"
           value={form.phone}
         />
       </View>
@@ -240,6 +253,38 @@ export default function AdminAddEmployeeScreen({ onCreated }: Props) {
             <Text className="mt-1 text-xs text-slate-500">Work assignment and initial password</Text>
           </View>
         </View>
+        <Text className="mb-3 text-sm font-semibold text-slate-700">Employee role *</Text>
+        <View className="mb-5 flex-row gap-3">
+          {(["EMPLOYEE", "MANAGER"] as EmployeeRole[]).map((role) => {
+            const isSelected = employeeRole === role;
+            return (
+              <Pressable
+                key={role}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: isSelected }}
+                className={`min-h-14 flex-1 items-center justify-center rounded-2xl border ${
+                  isSelected
+                    ? "border-wind-700 bg-wind-50"
+                    : "border-slate-200 bg-slate-50"
+                }`}
+                disabled={isSubmitting}
+                onPress={() => {
+                  setEmployeeRole(role);
+                  setError("");
+                }}
+              >
+                <Text className={`text-sm font-bold ${isSelected ? "text-wind-800" : "text-slate-600"}`}>
+                  {role === "EMPLOYEE" ? "Employee" : "Manager"}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <Text className="mb-5 -mt-2 text-xs leading-5 text-slate-500">
+          {employeeRole === "MANAGER"
+            ? "Managers have no geofence limit; the nearest active location is recorded for reporting."
+            : "Employees may punch only at their assigned locations."}
+        </Text>
         <FormField
           autoCapitalize="words"
           editable={!isSubmitting}
@@ -287,9 +332,11 @@ export default function AdminAddEmployeeScreen({ onCreated }: Props) {
           </View>
         </View>
 
-        <Text className="mb-3 text-sm font-semibold text-slate-700">Attendance location</Text>
+        <Text className="mb-3 text-sm font-semibold text-slate-700">
+          Attendance locations {employeeRole === "EMPLOYEE" ? "*" : "(optional)"}
+        </Text>
         <Pressable
-          accessibilityLabel="Select attendance location"
+          accessibilityLabel="Select attendance locations"
           accessibilityRole="button"
           accessibilityState={{ expanded: isLocationDropdownOpen }}
           className={`min-h-14 flex-row items-center justify-between rounded-2xl border bg-slate-50 px-4 active:bg-slate-100 ${
@@ -298,8 +345,12 @@ export default function AdminAddEmployeeScreen({ onCreated }: Props) {
           disabled={locations.length === 0 || isSubmitting}
           onPress={() => setIsLocationDropdownOpen((current) => !current)}
         >
-          <Text className={`flex-1 text-base font-semibold ${selectedLocation ? "text-slate-950" : "text-slate-400"}`}>
-            {selectedLocation?.name ?? "No attendance locations available"}
+          <Text className={`flex-1 text-base font-semibold ${selectedLocations.length ? "text-slate-950" : "text-slate-400"}`}>
+            {selectedLocations.length
+              ? `${selectedLocations.length} location${selectedLocations.length === 1 ? "" : "s"} selected`
+              : locations.length
+                ? "Select one or more locations"
+                : "No attendance locations available"}
           </Text>
           <View className="ml-3 h-3 w-3 rotate-45 border-b-2 border-r-2 border-wind-700" />
         </Pressable>
@@ -307,7 +358,7 @@ export default function AdminAddEmployeeScreen({ onCreated }: Props) {
         {isLocationDropdownOpen ? (
           <View className="mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white">
             {locations.map((item, index) => {
-              const isSelected = locationId === item.id;
+              const isSelected = locationIds.includes(item.id);
               return (
                 <Pressable
                   key={item.id}
@@ -317,25 +368,40 @@ export default function AdminAddEmployeeScreen({ onCreated }: Props) {
                     index > 0 ? "border-t border-slate-100" : ""
                   }`}
                   onPress={() => {
-                    setLocationId(item.id);
-                    setIsLocationDropdownOpen(false);
+                    setLocationIds((current) =>
+                      current.includes(item.id)
+                        ? current.filter((locationId) => locationId !== item.id)
+                        : [...current, item.id],
+                    );
+                    setError("");
                   }}
                 >
                   <Text className={`text-sm font-semibold ${isSelected ? "text-wind-700" : "text-slate-700"}`}>
                     {item.name}
                   </Text>
-                  {isSelected ? <View className="h-3 w-3 rounded-full bg-wind-700" /> : null}
+                  <View className={`h-5 w-5 items-center justify-center rounded-md border ${
+                    isSelected ? "border-wind-700 bg-wind-700" : "border-slate-300 bg-white"
+                  }`}>
+                    {isSelected ? <Text className="text-xs font-bold text-white">✓</Text> : null}
+                  </View>
                 </Pressable>
               );
             })}
+            <Pressable
+              accessibilityRole="button"
+              className="min-h-12 items-center justify-center border-t border-slate-100 bg-slate-50"
+              onPress={() => setIsLocationDropdownOpen(false)}
+            >
+              <Text className="text-sm font-bold text-wind-700">Done</Text>
+            </Pressable>
           </View>
         ) : null}
 
-        {selectedLocation ? (
+        {selectedLocations.length ? (
           <View className="mt-4 flex-row items-center rounded-[16px] bg-wind-50 px-3 py-3">
             <View className="h-2.5 w-2.5 rounded-full bg-wind-700" />
             <Text className="ml-2 flex-1 text-xs font-semibold text-wind-900">
-              {selectedLocation.geofenceRadiusMeters} m geofence · {selectedLocation.isPrimary ? "Primary location" : "Active location"}
+              {selectedLocations.map((location) => location.name).join(", ")}
             </Text>
           </View>
         ) : null}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 
+import ConfirmDialog from "../../../components/ConfirmDialog/ConfirmDialog";
 import { ApiError, getCurrentUser } from "../../../services/api";
 import type { AuthenticatedUser } from "../../../types/api";
 
@@ -14,6 +15,7 @@ export default function EmployeeSettingsScreen({
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
   const [error, setError] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isLogoutDialogVisible, setIsLogoutDialogVisible] = useState(false);
 
   const loadAccount = useCallback(async (refreshing = false) => {
     if (refreshing) setIsRefreshing(true);
@@ -33,17 +35,6 @@ export default function EmployeeSettingsScreen({
   useEffect(() => {
     void loadAccount();
   }, [loadAccount]);
-
-  const confirmLogout = () => {
-    Alert.alert(
-      "Log out of Windworld?",
-      "You will need your employee email and password to sign in again.",
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Log out", style: "destructive", onPress: onLogout },
-      ],
-    );
-  };
 
   return (
     <ScrollView
@@ -156,11 +147,24 @@ export default function EmployeeSettingsScreen({
         accessibilityHint="Ends the current secure session"
         accessibilityRole="button"
         className="mt-6 min-h-14 items-center justify-center rounded-[18px] border border-red-200 bg-white active:bg-red-50"
-        onPress={confirmLogout}
+        onPress={() => setIsLogoutDialogVisible(true)}
       >
         <Text className="font-bold text-red-700">Log out</Text>
       </Pressable>
       <Text className="mt-4 text-center text-[11px] text-slate-400">Windworld Employee · Secure attendance workspace</Text>
+
+      <ConfirmDialog
+        confirmLabel="Log out"
+        message="You will need your employee email and password to sign in again."
+        onCancel={() => setIsLogoutDialogVisible(false)}
+        onConfirm={() => {
+          setIsLogoutDialogVisible(false);
+          onLogout();
+        }}
+        title="Log out of Windworld?"
+        variant="danger"
+        visible={isLogoutDialogVisible}
+      />
     </ScrollView>
   );
 }

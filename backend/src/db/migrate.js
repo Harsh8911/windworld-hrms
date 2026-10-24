@@ -4,7 +4,10 @@ const path = require("node:path");
 
 const { pool } = require("./pool");
 
-const migrationsDirectory = path.resolve(__dirname, "../migrations");
+const migrationDirectories = [
+  path.resolve(__dirname, "../migrations"),
+  path.resolve(__dirname, "../../db/migrations"),
+];
 
 async function migrate() {
   const client = await pool.connect();
@@ -21,12 +24,33 @@ async function migrate() {
       "windworld_schema_migrations",
     ]);
 
-    const fileNames = (await fs.readdir(migrationsDirectory))
-      .filter((fileName) => fileName.endsWith(".sql"))
-      .sort();
+    const migrationFiles = (
+      await Promise.all(
+        migrationDirectories.map(async (directory) => {
+          try {
+            return (await fs.readdir(directory))
+              .filter((fileName) => fileName.endsWith(".sql"))
+              .map((fileName) => ({ directory, fileName }));
+          } catch (error) {
+            if (error.code === "ENOENT") return [];
+            throw error;
+          }
+        }),
+      )
+    )
+      .flat()
+      .sort((left, right) => left.fileName.localeCompare(right.fileName));
 
-    for (const fileName of fileNames) {
-      const sql = await fs.readFile(path.join(migrationsDirectory, fileName), "utf8");
+    const duplicateIds = migrationFiles.filter(
+      (migration, index) =>
+        index > 0 && migration.fileName === migrationFiles[index - 1].fileName,
+    );
+    if (duplicateIds.length > 0) {
+      throw new Error(`Duplicate migration ID: ${duplicateIds[0].fileName}`);
+    }
+
+    for (const { directory, fileName } of migrationFiles) {
+      const sql = await fs.readFile(path.join(directory, fileName), "utf8");
       const checksum = crypto.createHash("sha256").update(sql).digest("hex");
       const existing = await client.query(
         "SELECT checksum FROM schema_migrations WHERE id = $1",

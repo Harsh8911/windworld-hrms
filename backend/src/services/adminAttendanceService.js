@@ -59,10 +59,12 @@ function publicAdminLog(row) {
       designation: row.designation,
       department: row.department,
     },
-    location: {
-      id: row.attendance_location_id,
-      name: row.location_name,
-    },
+    location: row.attendance_location_id
+      ? {
+          id: row.attendance_location_id,
+          name: row.location_name,
+        }
+      : { id: null, name: "Current GPS location" },
     shift: {
       name: row.shift_name,
       startTime: row.shift_start_time.slice(0, 5),
@@ -79,7 +81,7 @@ function publicAdminLog(row) {
       latitude: Number(row.punch_in_latitude),
       longitude: Number(row.punch_in_longitude),
       accuracyMeters: Number(row.punch_in_accuracy_meters),
-      distanceMeters: Number(row.punch_in_distance_meters),
+      distanceMeters: nullableNumber(row.punch_in_distance_meters),
     },
     punchOut:
       punchOutAt && row.punch_out_latitude !== null
@@ -88,6 +90,12 @@ function publicAdminLog(row) {
             longitude: nullableNumber(row.punch_out_longitude),
             accuracyMeters: nullableNumber(row.punch_out_accuracy_meters),
             distanceMeters: nullableNumber(row.punch_out_distance_meters),
+            location: row.punch_out_attendance_location_id
+              ? {
+                  id: row.punch_out_attendance_location_id,
+                  name: row.punch_out_location_name,
+                }
+              : { id: null, name: "Current GPS location" },
           }
         : null,
   };
@@ -148,6 +156,7 @@ async function listAdminAttendanceLogs({ period, anchorDate, search, limit, offs
          profiles.designation,
          profiles.department,
          locations.name AS location_name,
+         punch_out_locations.name AS punch_out_location_name,
          shifts.name AS shift_name,
          shifts.start_time::text AS shift_start_time,
          shifts.end_time::text AS shift_end_time,
@@ -157,7 +166,9 @@ async function listAdminAttendanceLogs({ period, anchorDate, search, limit, offs
        FROM attendance_sessions AS sessions
        JOIN users ON users.id = sessions.employee_user_id
        JOIN employee_profiles AS profiles ON profiles.user_id = sessions.employee_user_id
-       JOIN attendance_locations AS locations ON locations.id = sessions.attendance_location_id
+       LEFT JOIN attendance_locations AS locations ON locations.id = sessions.attendance_location_id
+       LEFT JOIN attendance_locations AS punch_out_locations
+         ON punch_out_locations.id = sessions.punch_out_attendance_location_id
        JOIN work_shifts AS shifts ON shifts.id = profiles.shift_id
        WHERE ${filter}
        ORDER BY sessions.attendance_date DESC, sessions.punch_in_at DESC

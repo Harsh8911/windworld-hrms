@@ -117,7 +117,9 @@ function AttendanceLogCard({ log }: { log: AdminAttendanceLog }) {
           {log.shift.name} · {log.employee.department ?? "No department"} · {checkoutLabel(log.punchOutReason)}
         </Text>
         <Text className="mt-1 text-[11px] leading-4 text-slate-400">
-          Check-in GPS: {Math.round(log.punchIn.distanceMeters)} m from center · ±{Math.round(log.punchIn.accuracyMeters)} m accuracy
+          {log.punchIn.distanceMeters === null
+            ? `Check-in GPS: ${log.punchIn.latitude.toFixed(6)}, ${log.punchIn.longitude.toFixed(6)} · ±${Math.round(log.punchIn.accuracyMeters)} m accuracy`
+            : `Check-in GPS: ${Math.round(log.punchIn.distanceMeters)} m from center · ±${Math.round(log.punchIn.accuracyMeters)} m accuracy`}
         </Text>
       </View>
 

@@ -14,6 +14,7 @@ import {
   getCurrentAttendancePosition,
 } from "../../../services/deviceLocation";
 import type {
+  AttendanceLocation,
   AttendanceOverview,
   AttendancePositionInput,
   AuthenticatedUser,
@@ -38,12 +39,35 @@ function formatTime(value: string | null | undefined, timezone: string) {
   });
 }
 
+function findRecognizedLocation(
+  locations: AttendanceLocation[],
+  position: AttendancePositionInput,
+) {
+  const candidates = locations
+    .map((location) => ({
+      location,
+      distance: calculateDistanceMeters(
+        location.latitude,
+        location.longitude,
+        position.latitude,
+        position.longitude,
+      ),
+    }))
+    .sort((left, right) => left.distance - right.distance);
+  return candidates.find(
+    ({ location, distance }) =>
+      distance + position.accuracyMeters <= location.geofenceRadiusMeters,
+  )?.location;
+}
+
 export default function EmployeeHomeScreen({
   onOpenAttendance,
 }: EmployeeHomeScreenProps) {
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
   const [attendance, setAttendance] = useState<AttendanceOverview | null>(null);
   const [userPosition, setUserPosition] = useState<AttendancePositionInput | null>(null);
+  const [selectedLocationId, setSelectedLocationId] = useState("");
+  const [isLocationDropdownOpen, setIsLocationDropdownOpen] = useState(false);
   const [error, setError] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isPunching, setIsPunching] = useState(false);
@@ -56,9 +80,46 @@ export default function EmployeeHomeScreen({
         getCurrentUser(),
         getAttendanceOverview(),
       ]);
+      const profileLocations = currentUser.employeeProfile?.attendanceLocations ?? [];
+      const resolvedLocations = overview.availableLocations.length
+        ? overview.availableLocations
+        : profileLocations;
+      const resolvedOverview = {
+        ...overview,
+        employeeRole:
+          overview.employeeRole ?? currentUser.employeeProfile?.employeeRole ?? "EMPLOYEE",
+        availableLocations: resolvedLocations,
+      };
       setUser(currentUser);
-      setAttendance(overview);
+      setAttendance(resolvedOverview);
       setError("");
+
+      if (!resolvedOverview.todaySession || resolvedOverview.todaySession.status === "IN_PROGRESS") {
+        try {
+          const position = await getCurrentAttendancePosition();
+          const recognizedLocation = findRecognizedLocation(
+            resolvedOverview.availableLocations,
+            position,
+          );
+          setUserPosition(position);
+          if (recognizedLocation) {
+            setSelectedLocationId(recognizedLocation.id);
+          } else {
+            setSelectedLocationId("");
+            if (resolvedOverview.employeeRole !== "MANAGER") {
+              setError(
+                "Sorry, location is not recognized. Please select the location manually from the dropdown.",
+              );
+            }
+          }
+        } catch (locationError) {
+          setError(
+            locationError instanceof Error
+              ? locationError.message
+              : "Unable to identify your current location.",
+          );
+        }
+      }
     } catch (requestError) {
       setError(
         requestError instanceof ApiError
@@ -74,7 +135,10 @@ export default function EmployeeHomeScreen({
     void loadDashboard();
   }, [loadDashboard]);
 
-  const assignedLocation = user?.employeeProfile?.attendanceLocation;
+  const availableLocations = attendance?.availableLocations ?? [];
+  const selectedLocation = availableLocations.find(
+    (location) => location.id === selectedLocationId,
+  );
   const session = attendance?.todaySession;
   const isWorking = session?.status === "IN_PROGRESS";
   const todayLabel = useMemo(
@@ -94,26 +158,37 @@ export default function EmployeeHomeScreen({
       .join("") || "WW";
   const shiftTimezone = attendance?.shift.timezone ?? "Asia/Kolkata";
   const isCompleted = session?.status === "COMPLETED";
-  const canPunchIn = !session && Boolean(assignedLocation) && !isPunching;
-  const canPunchOut = Boolean(isWorking) && Boolean(assignedLocation) && !isPunching;
+  const isManager = attendance?.employeeRole === "MANAGER";
+  const hasPunchLocation = isManager || Boolean(selectedLocation);
+  const canPunchIn = !session && hasPunchLocation && !isPunching;
+  const canPunchOut = Boolean(isWorking) && hasPunchLocation && !isPunching;
 
   const getValidatedPosition = async () => {
-    if (!assignedLocation) {
-      throw new Error("Ask your administrator to assign an attendance location first.");
-    }
-
     const position = await getCurrentAttendancePosition();
     setUserPosition(position);
+
+    if (isManager) return position;
+
+    if (!selectedLocation) {
+      throw new Error(
+        availableLocations.length
+          ? "Sorry, location is not recognized. Please select the location manually from the dropdown."
+          : "Ask your administrator to assign an attendance location first.",
+      );
+    }
+
     const distance = calculateDistanceMeters(
-      assignedLocation.latitude,
-      assignedLocation.longitude,
+      selectedLocation.latitude,
+      selectedLocation.longitude,
       position.latitude,
       position.longitude,
     );
 
-    if (distance + position.accuracyMeters > assignedLocation.geofenceRadiusMeters) {
+    if (
+      distance + position.accuracyMeters > selectedLocation.geofenceRadiusMeters
+    ) {
       throw new Error(
-        `You are outside the ${assignedLocation.geofenceRadiusMeters}-meter ${assignedLocation.name} geofence.`,
+        `You are outside the ${selectedLocation.geofenceRadiusMeters}-meter ${selectedLocation.name} geofence.`,
       );
     }
 
@@ -126,8 +201,9 @@ export default function EmployeeHomeScreen({
 
     try {
       const position = await getValidatedPosition();
-      if (action === "in") await punchIn(position);
-      else await punchOut(position);
+      const attendanceLocationId = isManager ? undefined : selectedLocationId;
+      if (action === "in") await punchIn(position, attendanceLocationId);
+      else await punchOut(position, attendanceLocationId);
       await loadDashboard();
     } catch (requestError) {
       setError(
@@ -172,6 +248,69 @@ export default function EmployeeHomeScreen({
           <Text accessibilityLiveRegion="polite" className="text-sm font-semibold leading-5 text-red-700">
             {error}
           </Text>
+        </View>
+      ) : null}
+
+      {isManager && !isCompleted ? (
+        <View className="mt-4 rounded-[22px] border border-wind-100 bg-wind-50 p-4">
+          <Text className="text-xs font-bold text-wind-700">MANAGER GPS PUNCH</Text>
+          <Text className="mt-2 text-sm font-bold text-slate-950">
+            No saved attendance location is required
+          </Text>
+          <Text className="mt-1 text-xs leading-5 text-slate-600">
+            Your current latitude, longitude, and GPS accuracy will be captured when you punch.
+          </Text>
+          {userPosition ? (
+            <Text className="mt-3 text-[11px] font-semibold text-wind-800">
+              {userPosition.latitude.toFixed(6)}, {userPosition.longitude.toFixed(6)} · ±
+              {Math.round(userPosition.accuracyMeters)} m
+            </Text>
+          ) : null}
+        </View>
+      ) : availableLocations.length > 0 && !isCompleted ? (
+        <View className="mt-4 rounded-[22px] border border-slate-200 bg-white p-4">
+          <Text className="mb-2 text-xs font-bold text-slate-500">
+            {attendance?.employeeRole === "MANAGER" ? "PUNCH LOCATION" : "ASSIGNED LOCATION"}
+          </Text>
+          <Pressable
+            accessibilityLabel="Select punch location"
+            accessibilityRole="button"
+            accessibilityState={{ expanded: isLocationDropdownOpen }}
+            className="min-h-14 flex-row items-center justify-between rounded-2xl bg-slate-50 px-4"
+            onPress={() => setIsLocationDropdownOpen((current) => !current)}
+          >
+            <Text className={`flex-1 text-sm font-bold ${selectedLocation ? "text-slate-950" : "text-slate-500"}`}>
+              {selectedLocation?.name ?? "Select location manually"}
+            </Text>
+            <View className="ml-3 h-3 w-3 rotate-45 border-b-2 border-r-2 border-wind-700" />
+          </Pressable>
+          {isLocationDropdownOpen ? (
+            <View className="mt-2 overflow-hidden rounded-2xl border border-slate-200">
+              {availableLocations.map((location, index) => {
+                const isSelected = location.id === selectedLocationId;
+                return (
+                  <Pressable
+                    key={location.id}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isSelected }}
+                    className={`min-h-12 flex-row items-center justify-between bg-white px-4 active:bg-slate-50 ${
+                      index > 0 ? "border-t border-slate-100" : ""
+                    }`}
+                    onPress={() => {
+                      setSelectedLocationId(location.id);
+                      setIsLocationDropdownOpen(false);
+                      setError("");
+                    }}
+                  >
+                    <Text className={`text-sm font-semibold ${isSelected ? "text-wind-700" : "text-slate-700"}`}>
+                      {location.name}
+                    </Text>
+                    {isSelected ? <View className="h-3 w-3 rounded-full bg-wind-700" /> : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
         </View>
       ) : null}
 
@@ -281,33 +420,42 @@ export default function EmployeeHomeScreen({
       <View className="mb-4 mt-8 flex-row items-end justify-between">
         <View>
           <Text className="text-xl font-bold text-slate-950">Work location</Text>
-          <Text className="mt-1 text-xs text-slate-500">Your assigned attendance boundary</Text>
+          <Text className="mt-1 text-xs text-slate-500">
+            {isManager ? "Coordinates captured directly from GPS" : "Your selected attendance boundary"}
+          </Text>
         </View>
-        {assignedLocation ? (
+        {selectedLocation ? (
           <View className="rounded-full border border-wind-100 bg-wind-50 px-3 py-1.5">
             <Text className="text-[10px] font-bold text-wind-700">
-              {assignedLocation.geofenceRadiusMeters} M RADIUS
+              {selectedLocation.geofenceRadiusMeters} M RADIUS
             </Text>
           </View>
         ) : null}
       </View>
 
       <GeofenceMap
-        locationName={assignedLocation?.name ?? "No location assigned"}
-        latitude={assignedLocation?.latitude}
-        longitude={assignedLocation?.longitude}
-        radiusMeters={assignedLocation?.geofenceRadiusMeters ?? 0}
+        coordinateOnly={isManager}
+        locationName={isManager ? "Current GPS location" : selectedLocation?.name ?? "No location selected"}
+        latitude={isManager ? userPosition?.latitude : selectedLocation?.latitude}
+        longitude={isManager ? userPosition?.longitude : selectedLocation?.longitude}
+        radiusMeters={isManager ? 0 : selectedLocation?.geofenceRadiusMeters ?? 0}
         userPosition={userPosition}
       />
 
-      {assignedLocation ? (
+      {selectedLocation || (isManager && userPosition) ? (
         <View className="mt-3 flex-row items-center rounded-[20px] border border-slate-200 bg-white px-4 py-4">
           <View className="h-10 w-10 items-center justify-center rounded-[14px] bg-wind-50">
             <View className="h-3 w-3 rounded-full border-2 border-wind-700" />
           </View>
           <View className="ml-3 flex-1">
-            <Text className="text-sm font-bold text-slate-950">{assignedLocation.name}</Text>
-            <Text className="mt-1 text-xs text-slate-500">GPS verification is required to punch</Text>
+            <Text className="text-sm font-bold text-slate-950">
+              {isManager ? "Current GPS location" : selectedLocation?.name}
+            </Text>
+            <Text className="mt-1 text-xs text-slate-500">
+              {isManager
+                ? `${userPosition?.latitude.toFixed(6)}, ${userPosition?.longitude.toFixed(6)} · GPS coordinates are recorded for audit`
+                : "GPS verification is required to punch"}
+            </Text>
           </View>
           <View className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
         </View>

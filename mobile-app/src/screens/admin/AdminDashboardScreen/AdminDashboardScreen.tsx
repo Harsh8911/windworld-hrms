@@ -12,7 +12,9 @@ import AdminAddEmployeeScreen from "../AddEmployeeScreen/AdminAddEmployeeScreen"
 import AdminAttendanceLogsScreen from "../AttendanceLogsScreen/AdminAttendanceLogsScreen";
 import AdminAttendanceLocationsScreen from "../AttendanceLocationsScreen/AdminAttendanceLocationsScreen";
 import AdminEmployeesScreen from "../EmployeesScreen/AdminEmployeesScreen";
+import AdminEditEmployeeScreen from "../EditEmployeeScreen/AdminEditEmployeeScreen";
 import AdminSettingsScreen from "../SettingsScreen/AdminSettingsScreen";
+import type { Employee } from "../../../types/api";
 
 type AdminDashboardScreenProps = NativeStackScreenProps<
   RootStackParamList,
@@ -24,8 +26,22 @@ export default function AdminDashboardScreen({
 }: AdminDashboardScreenProps) {
   const [activeTab, setActiveTab] = useState<AdminTab>("employees");
   const [employeeRevision, setEmployeeRevision] = useState(0);
+  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
 
   const renderScreen = () => {
+    if (editingEmployee) {
+      return (
+        <AdminEditEmployeeScreen
+          employee={editingEmployee}
+          onCancel={() => setEditingEmployee(null)}
+          onSaved={() => {
+            setEditingEmployee(null);
+            setEmployeeRevision((value) => value + 1);
+          }}
+        />
+      );
+    }
+
     if (activeTab === "addEmployee") {
       return (
         <AdminAddEmployeeScreen
@@ -58,6 +74,7 @@ export default function AdminDashboardScreen({
     return (
       <AdminEmployeesScreen
         onAddEmployee={() => setActiveTab("addEmployee")}
+        onEditEmployee={setEditingEmployee}
         revision={employeeRevision}
       />
     );
@@ -67,7 +84,13 @@ export default function AdminDashboardScreen({
     <SafeAreaView className="flex-1 bg-[#f6f8f4]" edges={["top", "bottom"]}>
       <StatusBar style="dark" />
       <View className="flex-1">{renderScreen()}</View>
-      <AdminBottomNavigation activeTab={activeTab} onTabChange={setActiveTab} />
+      <AdminBottomNavigation
+        activeTab={activeTab}
+        onTabChange={(tab) => {
+          setEditingEmployee(null);
+          setActiveTab(tab);
+        }}
+      />
     </SafeAreaView>
   );
 }

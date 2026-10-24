@@ -33,6 +33,7 @@ export type ApiErrorResponse = {
 };
 
 export type EmployeeStatus = "ACTIVE" | "INACTIVE" | "ON_LEAVE" | string;
+export type EmployeeRole = "EMPLOYEE" | "MANAGER";
 
 export type AttendanceLocation = {
   id: string;
@@ -47,12 +48,19 @@ export type AttendanceLocation = {
 
 export type AttendanceLocationSummary = Pick<AttendanceLocation, "id" | "name">;
 
+export type RecordedAttendanceLocation = {
+  id: string | null;
+  name: string;
+};
+
 export type EmployeeProfile = {
   employeeId: string;
   phone: string | null;
   designation: string | null;
   department: string | null;
+  employeeRole: EmployeeRole;
   status: EmployeeStatus;
+  attendanceLocations: AttendanceLocation[];
   attendanceLocation: AttendanceLocation | null;
 };
 
@@ -64,7 +72,10 @@ export type Employee = {
   phone: string | null;
   designation: string | null;
   department: string | null;
+  employeeRole: EmployeeRole;
   status: EmployeeStatus;
+  isActive: boolean;
+  attendanceLocations: AttendanceLocationSummary[];
   attendanceLocation: AttendanceLocationSummary | null;
 };
 
@@ -98,12 +109,23 @@ export type AttendanceSession = {
   status: "IN_PROGRESS" | "COMPLETED";
   isLate: boolean;
   punchOutReason: "MANUAL" | "AUTO_SHIFT_END" | "AUTO_MAX_DURATION" | null;
-  location: AttendanceLocationSummary;
+  location: RecordedAttendanceLocation;
+  punchOutLocation: RecordedAttendanceLocation | null;
+};
+
+export type AdminShiftSettings = AttendanceShift & {
+  updatedAt: string;
+};
+
+export type AdminSettingsResponse = {
+  shift: AdminShiftSettings;
 };
 
 export type AttendanceOverview = {
   serverTime: string;
   attendanceDate: string;
+  employeeRole: EmployeeRole;
+  availableLocations: AttendanceLocation[];
   shift: AttendanceShift;
   todaySession: AttendanceSession | null;
   sessions: AttendanceSession[];
@@ -129,7 +151,7 @@ export type AdminAttendanceLog = {
     designation: string | null;
     department: string | null;
   };
-  location: AttendanceLocationSummary;
+  location: RecordedAttendanceLocation;
   shift: {
     name: string;
     startTime: string;
@@ -146,13 +168,14 @@ export type AdminAttendanceLog = {
     latitude: number;
     longitude: number;
     accuracyMeters: number;
-    distanceMeters: number;
+    distanceMeters: number | null;
   };
   punchOut: {
     latitude: number | null;
     longitude: number | null;
     accuracyMeters: number | null;
     distanceMeters: number | null;
+    location: RecordedAttendanceLocation | null;
   } | null;
 };
 
