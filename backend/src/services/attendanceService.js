@@ -229,26 +229,19 @@ async function autoPunchOutExpiredSessions({ employeeUserId } = {}) {
     `WITH due_sessions AS (
        SELECT
          sessions.id,
-         LEAST(
-           sessions.punch_in_at + shifts.max_duration_minutes * INTERVAL '1 minute',
-           ((sessions.attendance_date + shifts.end_time) AT TIME ZONE shifts.timezone)
-         ) AS due_at,
-         CASE
-           WHEN sessions.punch_in_at + shifts.max_duration_minutes * INTERVAL '1 minute'
-             <= ((sessions.attendance_date + shifts.end_time) AT TIME ZONE shifts.timezone)
-             THEN 'AUTO_MAX_DURATION'
-           ELSE 'AUTO_SHIFT_END'
-         END AS reason
+         ((sessions.attendance_date + shifts.end_time) AT TIME ZONE shifts.timezone)
+           + shifts.auto_checkout_delay_minutes * INTERVAL '1 minute' AS due_at
        FROM attendance_sessions AS sessions
        JOIN employee_profiles AS profiles ON profiles.user_id = sessions.employee_user_id
        JOIN work_shifts AS shifts ON shifts.id = profiles.shift_id
        WHERE sessions.punch_out_at IS NULL
+         AND shifts.auto_checkout_enabled = TRUE
        ${employeeFilter}
      )
      UPDATE attendance_sessions AS sessions
      SET
        punch_out_at = due_sessions.due_at,
-       punch_out_reason = due_sessions.reason,
+       punch_out_reason = 'AUTO_SHIFT_END',
        updated_at = CURRENT_TIMESTAMP
      FROM due_sessions
      WHERE sessions.id = due_sessions.id
@@ -394,16 +387,9 @@ async function punchOut(employeeUserId, input) {
       `SELECT
          sessions.id,
          sessions.punch_in_at,
-         LEAST(
-           sessions.punch_in_at + shifts.max_duration_minutes * INTERVAL '1 minute',
-           ((sessions.attendance_date + shifts.end_time) AT TIME ZONE shifts.timezone)
-         ) AS due_at,
-         CASE
-           WHEN sessions.punch_in_at + shifts.max_duration_minutes * INTERVAL '1 minute'
-             <= ((sessions.attendance_date + shifts.end_time) AT TIME ZONE shifts.timezone)
-             THEN 'AUTO_MAX_DURATION'
-           ELSE 'AUTO_SHIFT_END'
-         END AS automatic_reason
+         shifts.auto_checkout_enabled,
+         ((sessions.attendance_date + shifts.end_time) AT TIME ZONE shifts.timezone)
+           + shifts.auto_checkout_delay_minutes * INTERVAL '1 minute' AS due_at
        FROM attendance_sessions AS sessions
        JOIN work_shifts AS shifts ON shifts.id = $2
        WHERE sessions.employee_user_id = $1 AND sessions.punch_out_at IS NULL
@@ -419,12 +405,12 @@ async function punchOut(employeeUserId, input) {
     const now = new Date(context.database_now);
     const dueAt = new Date(currentSession.due_at);
 
-    if (now >= dueAt) {
+    if (currentSession.auto_checkout_enabled && now >= dueAt) {
       await client.query(
         `UPDATE attendance_sessions
          SET punch_out_at = $2, punch_out_reason = $3, updated_at = CURRENT_TIMESTAMP
          WHERE id = $1`,
-        [currentSession.id, currentSession.due_at, currentSession.automatic_reason],
+        [currentSession.id, currentSession.due_at, "AUTO_SHIFT_END"],
       );
     } else {
       const locations = await getAvailableLocations(client, context);

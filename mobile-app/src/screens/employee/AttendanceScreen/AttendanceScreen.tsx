@@ -259,7 +259,7 @@ export default function AttendanceScreen() {
           </Text>
           <Text className="mt-1 text-xs text-slate-500">
             {overview
-              ? `${overview.shift.startTime} - ${overview.shift.endTime} · ${overview.shift.maxDurationMinutes / 60} hour limit`
+              ? `${overview.shift.startTime} - ${overview.shift.endTime} · ${overview.shift.timezone}`
               : "Retrieving schedule"}
           </Text>
         </View>

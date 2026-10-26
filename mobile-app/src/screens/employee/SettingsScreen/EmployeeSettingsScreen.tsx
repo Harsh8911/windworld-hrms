@@ -111,7 +111,7 @@ export default function EmployeeSettingsScreen({
 
       <View className="mb-4 mt-8">
         <Text className="text-xl font-bold text-slate-950">Attendance policy</Text>
-        <Text className="mt-1 text-xs text-slate-500">Rules applied automatically by Windworld</Text>
+        <Text className="mt-1 text-xs text-slate-500">Rules applied to your attendance</Text>
       </View>
 
       <View className="rounded-[24px] border border-slate-200 bg-white p-5">
@@ -121,16 +121,6 @@ export default function EmployeeSettingsScreen({
             <Text className="text-sm font-bold text-slate-950">GPS-verified attendance</Text>
             <Text className="mt-1 text-xs leading-5 text-slate-500">
               Punch actions are accepted only inside your administrator-assigned geofence.
-            </Text>
-          </View>
-        </View>
-        <View className="my-4 h-px bg-slate-100" />
-        <View className="flex-row items-start">
-          <View className="mt-1 h-2.5 w-2.5 rounded-full bg-wind-700" />
-          <View className="ml-3 flex-1">
-            <Text className="text-sm font-bold text-slate-950">Automatic checkout</Text>
-            <Text className="mt-1 text-xs leading-5 text-slate-500">
-              Active sessions close at 6:00 PM or after the eight-hour work limit.
             </Text>
           </View>
         </View>

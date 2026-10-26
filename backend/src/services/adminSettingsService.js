@@ -11,6 +11,8 @@ function publicShift(row) {
     endTime: row.end_time.slice(0, 5),
     maxDurationMinutes: row.max_duration_minutes,
     timezone: row.timezone,
+    autoCheckoutEnabled: row.auto_checkout_enabled,
+    autoCheckoutDelayMinutes: row.auto_checkout_delay_minutes,
     updatedAt: new Date(row.updated_at).toISOString(),
   };
 }
@@ -18,7 +20,8 @@ function publicShift(row) {
 async function getAdminSettings() {
   const result = await pool.query(
     `SELECT id, name, start_time::text, end_time::text,
-            max_duration_minutes, timezone, updated_at
+            max_duration_minutes, timezone, auto_checkout_enabled,
+            auto_checkout_delay_minutes, updated_at
      FROM work_shifts
      WHERE id = $1 AND is_active = TRUE`,
     [GENERAL_SHIFT_ID],
@@ -52,11 +55,14 @@ async function updateGeneralShift(input, adminUserId) {
            end_time = $4::time,
            max_duration_minutes = $5,
            timezone = $6,
-           updated_by = $7,
+           auto_checkout_enabled = $7,
+           auto_checkout_delay_minutes = $8,
+           updated_by = $9,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $1 AND is_active = TRUE
        RETURNING id, name, start_time::text, end_time::text,
-                 max_duration_minutes, timezone, updated_at`,
+                 max_duration_minutes, timezone, auto_checkout_enabled,
+                 auto_checkout_delay_minutes, updated_at`,
       [
         GENERAL_SHIFT_ID,
         input.name,
@@ -64,6 +70,8 @@ async function updateGeneralShift(input, adminUserId) {
         input.endTime,
         input.maxDurationMinutes,
         input.timezone,
+        input.autoCheckoutEnabled,
+        input.autoCheckoutDelayMinutes,
         adminUserId,
       ],
     );

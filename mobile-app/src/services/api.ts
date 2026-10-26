@@ -310,6 +310,8 @@ export type UpdateAdminShiftInput = {
   endTime: string;
   maxDurationMinutes: number;
   timezone: string;
+  autoCheckoutEnabled: boolean;
+  autoCheckoutDelayMinutes: number;
 };
 
 export function updateAdminShift(

@@ -56,7 +56,7 @@ function formatRange(report: AdminAttendanceLogsResponse | null) {
 }
 
 function checkoutLabel(reason: AdminAttendanceLog["punchOutReason"]) {
-  if (reason === "AUTO_SHIFT_END") return "Auto at shift end";
+  if (reason === "AUTO_SHIFT_END") return "Auto after shift";
   if (reason === "AUTO_MAX_DURATION") return "Auto at 8h limit";
   if (reason === "MANUAL") return "Manual checkout";
   return "Currently working";

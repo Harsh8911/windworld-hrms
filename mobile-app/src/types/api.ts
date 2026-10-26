@@ -114,6 +114,8 @@ export type AttendanceSession = {
 };
 
 export type AdminShiftSettings = AttendanceShift & {
+  autoCheckoutEnabled: boolean;
+  autoCheckoutDelayMinutes: number;
   updatedAt: string;
 };
 

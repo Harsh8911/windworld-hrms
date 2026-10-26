@@ -51,14 +51,15 @@ async function main() {
     initialEmployeeCounterValue = initialEmployeeCounter.rows[0].last_value;
     const initialShiftResult = await pool.query(
       `SELECT name, start_time::text, end_time::text, max_duration_minutes,
-              timezone, updated_by
+              timezone, auto_checkout_enabled, auto_checkout_delay_minutes, updated_by
        FROM work_shifts
        WHERE id = '00000000-0000-0000-0000-000000000001'`,
     );
     initialShift = initialShiftResult.rows[0];
     await pool.query(
       `UPDATE work_shifts
-       SET start_time = '00:00:00', end_time = '23:59:59', max_duration_minutes = 480
+       SET start_time = '00:00:00', end_time = '23:59:59', max_duration_minutes = 480,
+           auto_checkout_enabled = TRUE, auto_checkout_delay_minutes = 30
       WHERE id = '00000000-0000-0000-0000-000000000001'`,
     );
 
@@ -69,7 +70,9 @@ async function main() {
       adminSettings.status === 200 &&
         adminSettings.body.shift.startTime === "00:00" &&
         adminSettings.body.shift.endTime === "23:59" &&
-        adminSettings.body.shift.maxDurationMinutes === 480,
+        adminSettings.body.shift.maxDurationMinutes === 480 &&
+        adminSettings.body.shift.autoCheckoutEnabled === true &&
+        adminSettings.body.shift.autoCheckoutDelayMinutes === 30,
       "Administrator settings could not be loaded",
     );
     const invalidShiftSettings = await request("/admin/settings/shift", {
@@ -81,6 +84,8 @@ async function main() {
         endTime: "18:00",
         maxDurationMinutes: 600,
         timezone: "Asia/Kolkata",
+        autoCheckoutEnabled: true,
+        autoCheckoutDelayMinutes: 30,
       }),
     });
     assert(
@@ -97,12 +102,32 @@ async function main() {
         endTime: "23:59",
         maxDurationMinutes: 480,
         timezone: "Invalid/Timezone",
+        autoCheckoutEnabled: true,
+        autoCheckoutDelayMinutes: 30,
       }),
     });
     assert(
       invalidTimezoneSettings.status === 422 &&
         invalidTimezoneSettings.body.error.code === "INVALID_TIMEZONE",
       "Invalid shift timezone was accepted",
+    );
+    const invalidAutoCheckoutDelay = await request("/admin/settings/shift", {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({
+        name: "General Shift",
+        startTime: "00:00",
+        endTime: "23:59",
+        maxDurationMinutes: 480,
+        timezone: "Asia/Kolkata",
+        autoCheckoutEnabled: true,
+        autoCheckoutDelayMinutes: 29,
+      }),
+    });
+    assert(
+      invalidAutoCheckoutDelay.status === 400 &&
+        invalidAutoCheckoutDelay.body.error.code === "VALIDATION_ERROR",
+      "An auto-checkout delay outside the 30-40 minute range was accepted",
     );
     const updatedSettings = await request("/admin/settings/shift", {
       method: "PATCH",
@@ -113,12 +138,16 @@ async function main() {
         endTime: "23:59",
         maxDurationMinutes: 480,
         timezone: "Asia/Kolkata",
+        autoCheckoutEnabled: false,
+        autoCheckoutDelayMinutes: 35,
       }),
     });
     assert(
       updatedSettings.status === 200 &&
         updatedSettings.body.shift.name === "General Shift" &&
-        updatedSettings.body.shift.timezone === "Asia/Kolkata",
+        updatedSettings.body.shift.timezone === "Asia/Kolkata" &&
+        updatedSettings.body.shift.autoCheckoutEnabled === false &&
+        updatedSettings.body.shift.autoCheckoutDelayMinutes === 35,
       "Administrator shift customization was not persisted",
     );
     const shiftAudit = await pool.query(
@@ -573,24 +602,60 @@ async function main() {
         storedManagerPunch.rows[0].punch_in_distance_meters === null,
       "Manager punch coordinates were not stored without a configured location",
     );
-    await pool.query(
-      "UPDATE work_shifts SET max_duration_minutes = 1 WHERE id = '00000000-0000-0000-0000-000000000001'",
+    const shiftedAttendance = await pool.query(
+      `UPDATE attendance_sessions
+       SET attendance_date = CURRENT_DATE - 1,
+           punch_in_at = CURRENT_TIMESTAMP - INTERVAL '1 day'
+       WHERE id = $1
+       RETURNING attendance_date::text`,
+      [customPunchIn.body.session.id],
+    );
+    const shiftedAttendanceDate = shiftedAttendance.rows[0].attendance_date;
+    const disabledAutoCheckoutAttendance = await request("/employee/attendance", {
+      headers: customAuthorization,
+    });
+    const disabledAutoCheckoutSession = disabledAutoCheckoutAttendance.body.sessions.find(
+      (session) => session.id === customPunchIn.body.session.id,
+    );
+    assert(
+      disabledAutoCheckoutAttendance.status === 200 &&
+        disabledAutoCheckoutSession?.status === "IN_PROGRESS",
+      "A session was automatically closed while auto-checkout was disabled",
     );
     await pool.query(
-      "UPDATE attendance_sessions SET punch_in_at = CURRENT_TIMESTAMP - INTERVAL '2 minutes' WHERE id = $1",
-      [customPunchIn.body.session.id],
+      `UPDATE work_shifts
+       SET auto_checkout_enabled = TRUE, auto_checkout_delay_minutes = 35
+       WHERE id = '00000000-0000-0000-0000-000000000001'`,
     );
     const autoClosedAttendance = await request("/employee/attendance", {
       headers: customAuthorization,
     });
+    const autoClosedSession = autoClosedAttendance.body.sessions.find(
+      (session) => session.id === customPunchIn.body.session.id,
+    );
     assert(
       autoClosedAttendance.status === 200 &&
-        autoClosedAttendance.body.todaySession.status === "COMPLETED" &&
-        autoClosedAttendance.body.todaySession.punchOutReason === "AUTO_MAX_DURATION",
-      "The maximum-duration auto punch out did not persist",
+        autoClosedSession?.status === "COMPLETED" &&
+        autoClosedSession.punchOutReason === "AUTO_SHIFT_END",
+      "The configured post-shift auto-checkout did not persist",
+    );
+    const storedAutoCheckout = await pool.query(
+      `SELECT ROUND(EXTRACT(EPOCH FROM (
+         sessions.punch_out_at
+           - ((sessions.attendance_date + shifts.end_time) AT TIME ZONE shifts.timezone)
+       )) / 60)::int AS delay_minutes
+       FROM attendance_sessions AS sessions
+       JOIN employee_profiles AS profiles ON profiles.user_id = sessions.employee_user_id
+       JOIN work_shifts AS shifts ON shifts.id = profiles.shift_id
+       WHERE sessions.id = $1`,
+      [customPunchIn.body.session.id],
+    );
+    assert(
+      storedAutoCheckout.rows[0].delay_minutes === 35,
+      "Automatic checkout did not use the configured post-shift delay",
     );
     const managerAdminLog = await request(
-      `/admin/attendance-logs?period=daily&search=${encodeURIComponent(`CUSTOM-${stamp}`)}`,
+      `/admin/attendance-logs?period=daily&anchorDate=${shiftedAttendanceDate}&search=${encodeURIComponent(`CUSTOM-${stamp}`)}`,
       { headers: { Authorization: `Bearer ${adminToken}` } },
     );
     assert(
@@ -601,10 +666,6 @@ async function main() {
         managerAdminLog.body.logs[0]?.punchIn.longitude === 0,
       "Manager coordinate-only punch was not available in the administrator report",
     );
-    await pool.query(
-      "UPDATE work_shifts SET max_duration_minutes = 480 WHERE id = '00000000-0000-0000-0000-000000000001'",
-    );
-
     const deletedEmployee = await request(`/admin/employees/${customEmployeeUserId}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${adminToken}` },
@@ -664,7 +725,7 @@ async function main() {
     });
     assert(inactiveRefresh.status === 401, "Inactive refresh token was accepted");
 
-    console.log("Integration checks passed: admin auth, employee IDs, admin edit/archive/restore/delete, employee self-edit, employee/manager roles, assigned and manager location access, validated admin shift customization and audit tracking, employee login, real database attendance logs, admin daily/monthly attendance reports, shift data, location recognition, persisted punch in/out, duplicate prevention, automatic maximum-duration checkout, password hashing, refresh rotation, validation, conflicts, role authorization, and active-account enforcement.");
+    console.log("Integration checks passed: admin auth, employee IDs, admin edit/archive/restore/delete, employee self-edit, employee/manager roles, assigned and manager location access, validated admin shift and auto-checkout customization with audit tracking, employee login, real database attendance logs, admin daily/monthly attendance reports, shift data, location recognition, persisted punch in/out, duplicate prevention, delayed and disabled automatic checkout, password hashing, refresh rotation, validation, conflicts, role authorization, and active-account enforcement.");
   } finally {
     if (employeeUserId) {
       await pool.query("DELETE FROM users WHERE id = $1", [employeeUserId]);
@@ -691,7 +752,9 @@ async function main() {
       await pool.query(
         `UPDATE work_shifts
          SET name = $1, start_time = $2, end_time = $3,
-             max_duration_minutes = $4, timezone = $5, updated_by = $6
+             max_duration_minutes = $4, timezone = $5,
+             auto_checkout_enabled = $6, auto_checkout_delay_minutes = $7,
+             updated_by = $8
          WHERE id = '00000000-0000-0000-0000-000000000001'`,
         [
           initialShift.name,
@@ -699,6 +762,8 @@ async function main() {
           initialShift.end_time,
           initialShift.max_duration_minutes,
           initialShift.timezone,
+          initialShift.auto_checkout_enabled,
+          initialShift.auto_checkout_delay_minutes,
           initialShift.updated_by,
         ],
       );

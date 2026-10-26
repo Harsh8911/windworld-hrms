@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Switch, Text, View } from "react-native";
 
 import ConfirmDialog from "../../../components/ConfirmDialog/ConfirmDialog";
 import FormField from "../../../components/FormField/FormField";
@@ -32,6 +32,8 @@ type ShiftDraft = {
   endTime: string;
   maxDurationMinutes: string;
   timezone: string;
+  autoCheckoutEnabled: boolean;
+  autoCheckoutDelayMinutes: string;
 };
 
 const emptyShiftDraft: ShiftDraft = {
@@ -40,6 +42,8 @@ const emptyShiftDraft: ShiftDraft = {
   endTime: "",
   maxDurationMinutes: "",
   timezone: "",
+  autoCheckoutEnabled: true,
+  autoCheckoutDelayMinutes: "30",
 };
 
 function createShiftDraft(shift: AdminShiftSettings): ShiftDraft {
@@ -50,6 +54,8 @@ function createShiftDraft(shift: AdminShiftSettings): ShiftDraft {
     endTime: shift.endTime,
     maxDurationMinutes: String(calculatedMinutes ?? shift.maxDurationMinutes),
     timezone: shift.timezone,
+    autoCheckoutEnabled: shift.autoCheckoutEnabled,
+    autoCheckoutDelayMinutes: String(shift.autoCheckoutDelayMinutes),
   };
 }
 
@@ -134,6 +140,7 @@ export default function AdminSettingsScreen({ onLogout }: AdminSettingsScreenPro
     const endMinutes = timeInMinutes(shiftDraft.endTime);
     const scheduledMinutes = calculateShiftMinutes(shiftDraft.startTime, shiftDraft.endTime);
     const maxDurationMinutes = Number(shiftDraft.maxDurationMinutes);
+    const autoCheckoutDelayMinutes = Number(shiftDraft.autoCheckoutDelayMinutes);
     const timezone = shiftDraft.timezone.trim();
 
     if (name.length < 2) {
@@ -160,6 +167,14 @@ export default function AdminSettingsScreen({ onLogout }: AdminSettingsScreenPro
       setError("Timezone is required.");
       return;
     }
+    if (
+      !Number.isInteger(autoCheckoutDelayMinutes) ||
+      autoCheckoutDelayMinutes < 30 ||
+      autoCheckoutDelayMinutes > 40
+    ) {
+      setError("Auto-checkout delay must be a whole number between 30 and 40 minutes.");
+      return;
+    }
 
     setIsSavingShift(true);
     setError("");
@@ -171,11 +186,17 @@ export default function AdminSettingsScreen({ onLogout }: AdminSettingsScreenPro
         endTime: shiftDraft.endTime,
         maxDurationMinutes,
         timezone,
+        autoCheckoutEnabled: shiftDraft.autoCheckoutEnabled,
+        autoCheckoutDelayMinutes,
       });
       setShift(settings.shift);
       setShiftDraft(createShiftDraft(settings.shift));
       setIsEditingShift(false);
-      setSuccessMessage("Attendance policy updated. New punch and automatic checkout rules are active.");
+      setSuccessMessage(
+        shiftDraft.autoCheckoutEnabled
+          ? `Attendance policy updated. Auto-checkout will run ${autoCheckoutDelayMinutes} minutes after shift end.`
+          : "Attendance policy updated. Auto-checkout is disabled.",
+      );
     } catch (requestError) {
       setError(
         requestError instanceof ApiError
@@ -301,9 +322,16 @@ export default function AdminSettingsScreen({ onLogout }: AdminSettingsScreenPro
             </Text>
             <Text className="mt-1 text-xs leading-5 text-slate-500">
               {shift
-                ? `${shift.startTime}–${shift.endTime} · ${formatDuration(shift.maxDurationMinutes)} maximum · ${shift.timezone}`
+                ? `${shift.startTime}–${shift.endTime} · ${formatDuration(shift.maxDurationMinutes)} scheduled · ${shift.timezone}`
                 : "Retrieving the database-backed attendance schedule."}
             </Text>
+            {shift ? (
+              <Text className={`mt-1 text-xs font-semibold ${shift.autoCheckoutEnabled ? "text-wind-700" : "text-slate-400"}`}>
+                {shift.autoCheckoutEnabled
+                  ? `Auto-checkout ${shift.autoCheckoutDelayMinutes} minutes after shift end`
+                  : "Auto-checkout disabled · employees check out manually"}
+              </Text>
+            ) : null}
           </View>
           <Pressable
             accessibilityLabel="Customize shift policy"
@@ -327,7 +355,7 @@ export default function AdminSettingsScreen({ onLogout }: AdminSettingsScreenPro
         <View className="mt-4 rounded-[24px] border border-wind-100 bg-white p-5">
           <Text className="text-lg font-bold text-slate-950">Customize attendance policy</Text>
           <Text className="mb-5 mt-1 text-xs leading-5 text-slate-500">
-            These values control punch availability, late arrival calculation, and automatic checkout for every employee assigned to this shift.
+            These values control punch availability, late arrival calculation, and the administrator-managed checkout policy.
           </Text>
 
           <FormField
@@ -391,7 +419,7 @@ export default function AdminSettingsScreen({ onLogout }: AdminSettingsScreenPro
           <FormField
             editable={false}
             helperText="Automatically calculated from the start and end times."
-            label="Maximum work duration (minutes)"
+            label="Scheduled shift duration (minutes)"
             placeholder="480"
             value={shiftDraft.maxDurationMinutes}
           />
@@ -410,9 +438,47 @@ export default function AdminSettingsScreen({ onLogout }: AdminSettingsScreenPro
             value={shiftDraft.timezone}
           />
 
+          <View className="mb-5 rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-4">
+            <View className="flex-row items-center">
+              <View className="flex-1 pr-4">
+                <Text className="text-sm font-bold text-slate-950">Automatic checkout</Text>
+                <Text className="mt-1 text-xs leading-5 text-slate-500">
+                  When enabled, open sessions close automatically after the scheduled shift end.
+                </Text>
+              </View>
+              <Switch
+                accessibilityLabel="Enable automatic checkout"
+                disabled={isSavingShift}
+                onValueChange={(autoCheckoutEnabled) =>
+                  setShiftDraft((current) => ({ ...current, autoCheckoutEnabled }))
+                }
+                thumbColor="#ffffff"
+                trackColor={{ false: "#cbd5e1", true: "#047857" }}
+                value={shiftDraft.autoCheckoutEnabled}
+              />
+            </View>
+
+            {shiftDraft.autoCheckoutEnabled ? (
+              <View className="mt-4 border-t border-slate-200 pt-4">
+                <FormField
+                  editable={!isSavingShift}
+                  helperText="Choose a whole number from 30 to 40 minutes."
+                  keyboardType="number-pad"
+                  label="Checkout delay after shift end (minutes)"
+                  maxLength={2}
+                  onChangeText={(autoCheckoutDelayMinutes) =>
+                    setShiftDraft((current) => ({ ...current, autoCheckoutDelayMinutes }))
+                  }
+                  placeholder="30"
+                  value={shiftDraft.autoCheckoutDelayMinutes}
+                />
+              </View>
+            ) : null}
+          </View>
+
           <View className="rounded-[18px] bg-amber-50 px-4 py-3">
             <Text className="text-xs leading-5 text-amber-800">
-              Shortening the shift or maximum duration can close active sessions during the next automatic attendance check.
+              Changing the shift end or auto-checkout delay can close overdue active sessions during the next automatic attendance check.
             </Text>
           </View>
 

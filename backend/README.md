@@ -79,9 +79,9 @@ Coordinates, IP address, and radius are validated. Setting a new active primary 
 ### Attendance settings
 
 - `GET /api/admin/settings` returns the active general shift configuration.
-- `PATCH /api/admin/settings/shift` updates the shift name, start time, end time, maximum duration, and IANA timezone.
+- `PATCH /api/admin/settings/shift` updates the shift name, start time, end time, scheduled duration, IANA timezone, and automatic-checkout policy.
 
-The update validates 24-hour times, requires the end time to be later than the start time, limits duration to 30–1440 minutes and to the scheduled window, verifies the timezone against PostgreSQL, and records the administrator who made the change. Saved values immediately drive punch availability, late detection, attendance reports, and automatic checkout.
+The update validates 24-hour times, requires the end time to be later than the start time, limits duration to 30–1440 minutes and to the scheduled window, verifies the timezone against PostgreSQL, and records the administrator who made the change. Automatic checkout can be enabled or disabled; when enabled, its delay is configurable from 30 to 40 minutes after shift end. Saved values immediately drive punch availability, late detection, attendance reports, and automatic checkout.
 
 ## Database commands
 
@@ -90,6 +90,6 @@ The update validates 24-hour times, requires the end time to be later than the s
 - `npm run db:seed:admin`
 - `npm run db:setup`
 
-The migration runner applies the legacy migrations in `src/migrations` and all new deployment migrations in `db/migrations`, in filename order. If a legacy installation already contains the complete schema but has no legacy `schema_migrations` records, the runner verifies the required tables, columns, triggers, sequence, and seed rows before safely baselining migrations `001` through `006`; it never drops or recreates existing tables. Migration `007_add_employee_roles_and_multiple_locations.sql` preserves existing single-location assignments while enabling multiple assignments and employee/manager roles; migration `009_allow_manager_coordinate_only_punches.sql` enables coordinate-only manager punches; migration `010_add_shift_update_audit.sql` tracks the administrator who last changed the shift policy.
+The migration runner applies the legacy migrations in `src/migrations` and all new deployment migrations in `db/migrations`, in filename order. If a legacy installation already contains the complete schema but has no legacy `schema_migrations` records, the runner verifies the required tables, columns, triggers, sequence, and seed rows before safely baselining migrations `001` through `006`; it never drops or recreates existing tables. Migration `007_add_employee_roles_and_multiple_locations.sql` preserves existing single-location assignments while enabling multiple assignments and employee/manager roles; migration `009_allow_manager_coordinate_only_punches.sql` enables coordinate-only manager punches; migration `010_add_shift_update_audit.sql` tracks the administrator who last changed the shift policy; migration `011_add_auto_checkout_policy.sql` adds the administrator-managed automatic-checkout toggle and delay.
 
 Run `npm run check` for backend JavaScript syntax validation. With the migrated local database and seeded administrator available, run `npm run test:integration` for the focused API integration check; it creates and removes isolated test records. Never commit `.env` or use local development secrets in production.

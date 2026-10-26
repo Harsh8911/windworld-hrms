@@ -186,6 +186,8 @@ const shiftSettingsSchema = z
     startTime: shiftTimeSchema,
     endTime: shiftTimeSchema,
     maxDurationMinutes: z.coerce.number().int().min(30).max(1440),
+    autoCheckoutEnabled: z.boolean(),
+    autoCheckoutDelayMinutes: z.coerce.number().int().min(30).max(40),
     timezone: z
       .string()
       .trim()
