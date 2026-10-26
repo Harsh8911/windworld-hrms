@@ -52,10 +52,7 @@ export default function AdminAddEmployeeScreen({ onCreated }: Props) {
         if (!isMounted) return;
 
         if (locationsResult.status === "fulfilled") {
-          const nextLocations = locationsResult.value.locations;
-          setLocations(nextLocations);
-          const defaultLocation = nextLocations.find((item) => item.isPrimary) ?? nextLocations[0];
-          setLocationIds(defaultLocation ? [defaultLocation.id] : []);
+          setLocations(locationsResult.value.locations);
         }
 
         if (employeeIdResult.status === "fulfilled") {

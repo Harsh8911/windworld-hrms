@@ -2,7 +2,7 @@
   "expo": {
     "name": "WindWorld HRMS",
     "slug": "windworld",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "icon": "./assets/favicon.png",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
@@ -18,7 +18,7 @@
     },
     "android": {
       "package": "com.windworld.mobile",
-      "versionCode": 2,
+      "versionCode": 3,
       "adaptiveIcon": {
         "foregroundImage": "./assets/favicon.png",
         "backgroundColor": "#ffffff"
