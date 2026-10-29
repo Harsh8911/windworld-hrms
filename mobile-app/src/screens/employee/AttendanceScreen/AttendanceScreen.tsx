@@ -57,6 +57,7 @@ function sessionStatus(session: AttendanceSession) {
   if (session.status === "IN_PROGRESS") return "On shift";
   if (session.punchOutReason === "AUTO_SHIFT_END") return "Auto checkout";
   if (session.punchOutReason === "AUTO_MAX_DURATION") return "8h limit";
+  if (session.punchOutReason === "MISSED_CHECKOUT") return "Not checked out";
   return session.isLate ? "Late arrival" : "Present";
 }
 

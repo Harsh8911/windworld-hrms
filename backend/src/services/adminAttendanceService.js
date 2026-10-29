@@ -139,6 +139,7 @@ async function listAdminAttendanceLogs({ period, anchorDate, search, limit, offs
          COUNT(DISTINCT sessions.employee_user_id)::int AS unique_employees,
          COUNT(*) FILTER (WHERE sessions.punch_out_at IS NULL)::int AS in_progress,
          COUNT(*) FILTER (WHERE ${lateExpression})::int AS late_records,
+         COUNT(*) FILTER (WHERE sessions.punch_out_reason = 'MISSED_CHECKOUT')::int AS missed_checkouts,
          COALESCE(SUM(${durationExpression}), 0)::bigint AS total_minutes
        FROM attendance_sessions AS sessions
        JOIN users ON users.id = sessions.employee_user_id
@@ -191,6 +192,7 @@ async function listAdminAttendanceLogs({ period, anchorDate, search, limit, offs
       uniqueEmployees: summary.unique_employees,
       inProgress: summary.in_progress,
       lateRecords: summary.late_records,
+      missedCheckouts: summary.missed_checkouts,
       totalMinutes: Number(summary.total_minutes),
     },
     logs: logsResult.rows.map(publicAdminLog),

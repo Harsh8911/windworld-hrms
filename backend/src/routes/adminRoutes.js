@@ -7,13 +7,17 @@ const { authenticate } = require("../middleware/authenticate");
 const { requireRole } = require("../middleware/requireRole");
 const {
   createAttendanceLocation,
+  deleteAttendanceLocation,
   listAttendanceLocations,
+  setAttendanceLocationArchived,
+  updateAttendanceLocation,
 } = require("../services/attendanceLocationService");
 const {
   createEmployee,
   deleteEmployee,
   getNextEmployeeId,
   listEmployees,
+  resetEmployeePassword,
   setEmployeeArchived,
   updateEmployee,
 } = require("../services/employeeService");
@@ -114,6 +118,7 @@ const updateEmployeeSchema = z
 
 const archiveEmployeeSchema = z.object({ archived: z.boolean() }).strict();
 const employeeIdSchema = z.string().uuid();
+const resetCredentialsSchema = z.object({ password: passwordSchema }).strict();
 
 const listEmployeesSchema = z
   .object({
@@ -153,6 +158,8 @@ const listLocationsSchema = z
       .transform((value) => value === "true"),
   })
   .strict();
+const locationIdSchema = z.string().uuid();
+const archiveLocationSchema = z.object({ archived: z.boolean() }).strict();
 
 const listAttendanceLogsSchema = z
   .object({
@@ -253,6 +260,13 @@ router.delete("/employees/:employeeUserId", async (request, response) => {
   response.status(204).send();
 });
 
+router.patch("/employees/:employeeUserId/credentials", async (request, response) => {
+  const employeeUserId = employeeIdSchema.parse(request.params.employeeUserId);
+  const { password } = resetCredentialsSchema.parse(request.body);
+  await resetEmployeePassword(employeeUserId, password, request.user.id);
+  response.status(204).send();
+});
+
 router.get("/attendance-locations", async (request, response) => {
   const query = listLocationsSchema.parse(request.query);
   const locations = await listAttendanceLocations(query);
@@ -263,6 +277,26 @@ router.post("/attendance-locations", async (request, response) => {
   const input = createLocationSchema.parse(request.body);
   const location = await createAttendanceLocation(input, request.user.id);
   response.status(201).json({ location });
+});
+
+router.patch("/attendance-locations/:locationId", async (request, response) => {
+  const locationId = locationIdSchema.parse(request.params.locationId);
+  const input = createLocationSchema.parse(request.body);
+  const location = await updateAttendanceLocation(locationId, input);
+  response.json({ location });
+});
+
+router.patch("/attendance-locations/:locationId/archive", async (request, response) => {
+  const locationId = locationIdSchema.parse(request.params.locationId);
+  const { archived } = archiveLocationSchema.parse(request.body);
+  const location = await setAttendanceLocationArchived(locationId, archived);
+  response.json({ location });
+});
+
+router.delete("/attendance-locations/:locationId", async (request, response) => {
+  const locationId = locationIdSchema.parse(request.params.locationId);
+  await deleteAttendanceLocation(locationId);
+  response.status(204).send();
 });
 
 router.get("/attendance-logs", async (request, response) => {

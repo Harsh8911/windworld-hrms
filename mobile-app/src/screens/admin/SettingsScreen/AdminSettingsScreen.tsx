@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Switch, Text, View } from "react-native";
+import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, Switch, Text, View } from "react-native";
 
 import ConfirmDialog from "../../../components/ConfirmDialog/ConfirmDialog";
 import FormField from "../../../components/FormField/FormField";
@@ -195,7 +195,7 @@ export default function AdminSettingsScreen({ onLogout }: AdminSettingsScreenPro
       setSuccessMessage(
         shiftDraft.autoCheckoutEnabled
           ? `Attendance policy updated. Auto-checkout will run ${autoCheckoutDelayMinutes} minutes after shift end.`
-          : "Attendance policy updated. Auto-checkout is disabled.",
+          : "Attendance policy updated. Unclosed sessions will be marked not checked out at day end.",
       );
     } catch (requestError) {
       setError(
@@ -329,7 +329,7 @@ export default function AdminSettingsScreen({ onLogout }: AdminSettingsScreenPro
               <Text className={`mt-1 text-xs font-semibold ${shift.autoCheckoutEnabled ? "text-wind-700" : "text-slate-400"}`}>
                 {shift.autoCheckoutEnabled
                   ? `Auto-checkout ${shift.autoCheckoutDelayMinutes} minutes after shift end`
-                  : "Auto-checkout disabled · employees check out manually"}
+                  : "Manual checkout · missed checkouts close at day end"}
               </Text>
             ) : null}
           </View>
@@ -352,11 +352,55 @@ export default function AdminSettingsScreen({ onLogout }: AdminSettingsScreenPro
       </View>
 
       {isEditingShift ? (
-        <View className="mt-4 rounded-[24px] border border-wind-100 bg-white p-5">
-          <Text className="text-lg font-bold text-slate-950">Customize attendance policy</Text>
-          <Text className="mb-5 mt-1 text-xs leading-5 text-slate-500">
-            These values control punch availability, late arrival calculation, and the administrator-managed checkout policy.
-          </Text>
+        <Modal
+          animationType="fade"
+          onRequestClose={() => {
+            if (!isSavingShift) setIsEditingShift(false);
+          }}
+          transparent
+          visible
+        >
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} className="flex-1">
+            <Pressable
+              accessibilityElementsHidden
+              className="absolute inset-0"
+              disabled={isSavingShift}
+              importantForAccessibility="no-hide-descendants"
+              onPress={() => setIsEditingShift(false)}
+              style={{ backgroundColor: "rgba(2, 6, 23, 0.6)" }}
+            />
+            <ScrollView
+              className="flex-1"
+              contentContainerClassName="px-5 py-10"
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+        <View accessibilityViewIsModal className="w-full max-w-lg self-center rounded-[28px] bg-[#f6f8f4] p-4">
+          <View className="flex-row items-start justify-between px-1 pb-3">
+            <View className="flex-1 pr-3">
+              <Text className="text-xl font-bold text-slate-950">Customize attendance policy</Text>
+              <Text className="mt-1 text-xs leading-5 text-slate-500">
+                Configure the general shift schedule and checkout policy.
+              </Text>
+            </View>
+            <Pressable
+              accessibilityLabel="Close shift settings"
+              accessibilityRole="button"
+              className="h-11 w-11 items-center justify-center rounded-[14px] bg-white"
+              disabled={isSavingShift}
+              onPress={() => setIsEditingShift(false)}
+            >
+              <Ionicons color="#475569" name="close" size={24} />
+            </Pressable>
+          </View>
+
+          {error ? (
+            <View className="mb-3 rounded-[18px] border border-red-200 bg-red-50 px-4 py-3">
+              <Text accessibilityLiveRegion="polite" className="text-sm font-semibold leading-5 text-red-700">{error}</Text>
+            </View>
+          ) : null}
+
+          <View className="rounded-[24px] border border-slate-200 bg-white p-5">
 
           <FormField
             editable={!isSavingShift}
@@ -510,7 +554,11 @@ export default function AdminSettingsScreen({ onLogout }: AdminSettingsScreenPro
               )}
             </Pressable>
           </View>
+          </View>
         </View>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </Modal>
       ) : null}
 
       <Pressable

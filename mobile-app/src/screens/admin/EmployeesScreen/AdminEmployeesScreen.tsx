@@ -3,10 +3,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View } from "react-native";
 
 import ConfirmDialog from "../../../components/ConfirmDialog/ConfirmDialog";
+import ResetCredentialsDialog from "../../../components/ResetCredentialsDialog/ResetCredentialsDialog";
 import {
   ApiError,
   deleteEmployee,
   getEmployees,
+  resetEmployeeCredentials,
   setEmployeeArchived,
 } from "../../../services/api";
 import type { Employee, EmployeesResponse } from "../../../types/api";
@@ -46,12 +48,14 @@ function EmployeeCard({
   onArchive,
   onDelete,
   onEdit,
+  onResetCredentials,
 }: {
   employee: Employee;
   isBusy: boolean;
   onArchive: () => void;
   onDelete: () => void;
   onEdit: () => void;
+  onResetCredentials: () => void;
 }) {
   const isActive = employee.isActive && employee.status.toUpperCase() === "ACTIVE";
 
@@ -91,7 +95,18 @@ function EmployeeCard({
       </View>
 
       <View className="mt-3 flex-row justify-end gap-2">
-        <Pressable
+        {isActive ? <Pressable
+          accessibilityHint="Sets a new password and signs out existing sessions"
+          accessibilityLabel={`Reset credentials for ${employee.fullName}`}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: isBusy }}
+          className="h-11 w-11 items-center justify-center rounded-[14px] border border-sky-100 bg-sky-50 active:bg-sky-100"
+          disabled={isBusy}
+          onPress={onResetCredentials}
+        >
+          <Ionicons color="#0369a1" name="key-outline" size={21} />
+        </Pressable> : null}
+        {isActive ? <Pressable
           accessibilityHint="Opens this employee's profile for editing"
           accessibilityLabel={`Edit ${employee.fullName}`}
           accessibilityRole="button"
@@ -101,12 +116,12 @@ function EmployeeCard({
           onPress={onEdit}
         >
           <Ionicons color="#047857" name="create-outline" size={22} />
-        </Pressable>
+        </Pressable> : null}
         <Pressable
           accessibilityHint={
             isActive
               ? "Disables login while keeping attendance history"
-              : "Allows this employee to log in again"
+              : "Unarchives this employee and allows login again"
           }
           accessibilityLabel={`${isActive ? "Archive" : "Restore"} ${employee.fullName}`}
           accessibilityRole="button"
@@ -120,13 +135,13 @@ function EmployeeCard({
           ) : (
             <Ionicons
               color="#b45309"
-              name={isActive ? "archive-outline" : "refresh-outline"}
+              name={isActive ? "archive-outline" : "arrow-undo-outline"}
               size={21}
             />
           )}
         </Pressable>
         <Pressable
-          accessibilityHint="Permanently deletes this employee and their attendance records"
+          accessibilityHint={isActive ? "Permanently deletes this employee and their attendance records" : "Permanently deletes this archived employee and their attendance records"}
           accessibilityLabel={`Delete ${employee.fullName}`}
           accessibilityRole="button"
           accessibilityState={{ disabled: isBusy }}
@@ -151,8 +166,12 @@ export default function AdminEmployeesScreen({
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [busyEmployeeId, setBusyEmployeeId] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingEmployeeAction | null>(null);
+  const [credentialEmployee, setCredentialEmployee] = useState<Employee | null>(null);
+  const [credentialError, setCredentialError] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
 
   const loadEmployees = useCallback(async (refreshing = false) => {
     if (refreshing) setIsRefreshing(true);
@@ -213,14 +232,33 @@ export default function AdminEmployeesScreen({
     }
   };
 
+  const resetCredentials = async (password: string) => {
+    if (!credentialEmployee) return;
+    setBusyEmployeeId(credentialEmployee.id);
+    setCredentialError("");
+    setNotice("");
+    try {
+      await resetEmployeeCredentials(credentialEmployee.id, password);
+      setCredentialEmployee(null);
+      setNotice(`Credentials reset successfully for ${credentialEmployee.fullName}.`);
+    } catch (requestError) {
+      setCredentialError(requestError instanceof ApiError ? requestError.message : "Unable to reset credentials.");
+    } finally {
+      setBusyEmployeeId(null);
+    }
+  };
+
   useEffect(() => {
     void loadEmployees();
   }, [loadEmployees, revision]);
 
   const visibleEmployees = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return data.employees;
-    return data.employees.filter((employee) =>
+    const directory = data.employees.filter((employee) =>
+      showArchived ? !employee.isActive : employee.isActive,
+    );
+    if (!normalizedQuery) return directory;
+    return directory.filter((employee) =>
       [
         employee.fullName,
         employee.employeeId,
@@ -230,18 +268,19 @@ export default function AdminEmployeesScreen({
         ...employee.attendanceLocations.map((location) => location.name),
       ].some((value) => value?.toLowerCase().includes(normalizedQuery)),
     );
-  }, [data.employees, query]);
+  }, [data.employees, query, showArchived]);
 
   const header = (
     <View>
       <View className="flex-row items-start justify-between">
         <View className="flex-1 pr-4">
           <Text className="text-sm font-semibold text-wind-700">PEOPLE OPERATIONS</Text>
-          <Text className="mt-1 text-[30px] font-bold leading-9 text-slate-950">Your workforce</Text>
+          <Text className="mt-1 text-[30px] font-bold leading-9 text-slate-950">{showArchived ? "Archived employees" : "Your workforce"}</Text>
           <Text className="mt-2 text-sm leading-5 text-slate-500">
-            Employees, roles, and attendance assignments in one place.
+            {showArchived ? "Restore archived profiles or remove them permanently." : "Employees, roles, and attendance assignments in one place."}
           </Text>
         </View>
+        <View className="flex-row gap-2">
         <Pressable
           accessibilityLabel="Add employee"
           accessibilityRole="button"
@@ -251,6 +290,7 @@ export default function AdminEmployeesScreen({
           <View className="absolute h-0.5 w-5 rounded-full bg-white" />
           <View className="absolute h-5 w-0.5 rounded-full bg-white" />
         </Pressable>
+        </View>
       </View>
 
       <View className="mt-6 overflow-hidden rounded-[28px] bg-wind-900 p-5">
@@ -289,6 +329,11 @@ export default function AdminEmployeesScreen({
           </Pressable>
         </View>
       ) : null}
+      {notice ? (
+        <View className="mt-4 rounded-[20px] border border-wind-200 bg-wind-50 px-4 py-4">
+          <Text accessibilityLiveRegion="polite" className="text-sm font-semibold leading-5 text-wind-700">{notice}</Text>
+        </View>
+      ) : null}
 
       <View className="mt-5 min-h-14 flex-row items-center rounded-[18px] border border-slate-200 bg-white px-4">
         <View className="mr-3 h-4 w-4 rounded-full border-2 border-slate-400" />
@@ -296,15 +341,26 @@ export default function AdminEmployeesScreen({
           accessibilityLabel="Search employees"
           className="min-h-14 flex-1 text-base text-slate-950 outline-none"
           onChangeText={setQuery}
-          placeholder="Search name, ID, role, team, or location"
+          placeholder={showArchived ? "Search archived employees" : "Search name, ID, role, team, or location"}
           placeholderTextColor="#94a3b8"
           value={query}
         />
       </View>
 
-      <View className="mb-3 mt-7">
-        <Text className="text-xl font-bold text-slate-950">Employee directory</Text>
-        <Text className="mt-1 text-xs text-slate-500">{visibleEmployees.length} profiles shown</Text>
+      <View className="mb-3 mt-7 flex-row items-center justify-between">
+        <View className="flex-1 pr-3">
+          <Text className="text-xl font-bold text-slate-950">{showArchived ? "Archive directory" : "Employee directory"}</Text>
+          <Text className="mt-1 text-xs text-slate-500">{visibleEmployees.length} profiles shown</Text>
+        </View>
+        <Pressable
+          accessibilityLabel={showArchived ? "Show active employees" : "Show archived employees"}
+          accessibilityRole="button"
+          className={`h-11 flex-row items-center justify-center rounded-[14px] border px-3 ${showArchived ? "border-wind-700 bg-wind-50" : "border-slate-200 bg-white"}`}
+          onPress={() => { setShowArchived((current) => !current); setQuery(""); }}
+        >
+          <Ionicons color={showArchived ? "#047857" : "#64748b"} name={showArchived ? "arrow-back-outline" : "archive-outline"} size={19} />
+          <Text className={`ml-2 text-xs font-bold ${showArchived ? "text-wind-700" : "text-slate-600"}`}>{showArchived ? "Active" : "Archived"}</Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -338,22 +394,24 @@ export default function AdminEmployeesScreen({
       keyExtractor={(employee) => employee.id}
       keyboardShouldPersistTaps="handled"
       ListEmptyComponent={
-        !error ? (
+        error ? undefined : (
           <View className="items-center rounded-[24px] border border-slate-200 bg-white px-6 py-10">
             <View className="h-12 w-12 items-center justify-center rounded-[18px] bg-wind-50">
               <View className="h-4 w-4 rounded-full border-2 border-wind-700" />
             </View>
             <Text className="mt-4 text-base font-bold text-slate-950">
-              {isLoading ? "Loading workforce" : query ? "No matching employees" : "Build your team"}
+              {isLoading ? "Loading workforce" : query ? "No matching employees" : showArchived ? "No archived employees" : "Build your team"}
             </Text>
             <Text className="mt-1 text-center text-xs leading-5 text-slate-500">
               {isLoading
                 ? "Reading employee profiles from the database..."
                 : query
                   ? "Try a different name, ID, department, or location."
-                  : "Create the first employee profile to get started."}
+                  : showArchived
+                    ? "Archived employee profiles will appear here."
+                    : "Create the first employee profile to get started."}
             </Text>
-            {!isLoading && !query ? (
+            {!isLoading && !query && !showArchived ? (
               <Pressable
                 accessibilityRole="button"
                 className="mt-4 min-h-12 items-center justify-center rounded-[15px] bg-wind-700 px-5"
@@ -363,7 +421,7 @@ export default function AdminEmployeesScreen({
               </Pressable>
             ) : null}
           </View>
-        ) : null
+        )
       }
       ListHeaderComponent={header}
       onRefresh={() => void loadEmployees(true)}
@@ -375,6 +433,7 @@ export default function AdminEmployeesScreen({
           onArchive={() => archiveEmployee(item)}
           onDelete={() => confirmDeleteEmployee(item)}
           onEdit={() => onEditEmployee(item)}
+          onResetCredentials={() => { setCredentialError(""); setCredentialEmployee(item); }}
         />
       )}
         showsVerticalScrollIndicator={false}
@@ -388,6 +447,14 @@ export default function AdminEmployeesScreen({
         title={dialogTitle}
         variant={pendingAction?.action === "restore" ? "default" : pendingAction?.action === "archive" ? "warning" : "danger"}
         visible={pendingAction !== null}
+      />
+      <ResetCredentialsDialog
+        employeeName={credentialEmployee?.fullName ?? "this employee"}
+        error={credentialError}
+        isBusy={busyEmployeeId === credentialEmployee?.id}
+        onCancel={() => { if (!busyEmployeeId) setCredentialEmployee(null); }}
+        onSubmit={(password) => void resetCredentials(password)}
+        visible={credentialEmployee !== null}
       />
     </>
   );

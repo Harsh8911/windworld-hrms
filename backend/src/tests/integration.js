@@ -201,6 +201,41 @@ async function main() {
     assert(unassignedLocation.status === 201, "Unassigned attendance-location creation failed");
     unassignedLocationId = unassignedLocation.body.location.id;
 
+    const updatedLocation = await request(`/admin/attendance-locations/${unassignedLocationId}`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({
+        name: `API Test Unassigned Updated ${stamp}`,
+        latitude: 17.386,
+        longitude: 78.487,
+        geofenceRadiusMeters: 650,
+        isPrimary: false,
+      }),
+    });
+    assert(
+      updatedLocation.status === 200 &&
+        updatedLocation.body.location.geofenceRadiusMeters === 650,
+      "Attendance-location edit failed",
+    );
+    const archivedLocation = await request(`/admin/attendance-locations/${unassignedLocationId}/archive`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({ archived: true }),
+    });
+    assert(
+      archivedLocation.status === 200 && archivedLocation.body.location.isActive === false,
+      "Attendance-location archive failed",
+    );
+    const restoredLocation = await request(`/admin/attendance-locations/${unassignedLocationId}/archive`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({ archived: false }),
+    });
+    assert(
+      restoredLocation.status === 200 && restoredLocation.body.location.isActive === true,
+      "Attendance-location restore failed",
+    );
+
     const employeeIdPreviews = await Promise.all([
       request("/admin/employees/next-id", {
         headers: { Authorization: `Bearer ${adminToken}` },
@@ -318,6 +353,20 @@ async function main() {
       "Employee restore failed",
     );
 
+    const resetPassword = `reset-${stamp}`;
+    const resetCredentials = await request(`/admin/employees/${employeeUserId}/credentials`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({ password: resetPassword }),
+    });
+    assert(resetCredentials.status === 204, "Employee credential reset failed");
+    const oldCredentialLogin = await request("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ identity: employeeInput.employeeId, password: employeeInput.password }),
+    });
+    assert(oldCredentialLogin.status === 401, "Old employee credentials remained valid after reset");
+    employeeInput.password = resetPassword;
+
     const nextEmployeeId = await request("/admin/employees/next-id", {
       headers: { Authorization: `Bearer ${adminToken}` },
     });
@@ -378,6 +427,32 @@ async function main() {
       body: JSON.stringify({ identity: employeeInput.employeeId, password: employeeInput.password }),
     });
     assert(employeeLogin.status === 200 && employeeLogin.body.user.role === "EMPLOYEE", "Employee login failed");
+
+    const passwordResetNotifications = await request("/employee/notifications", {
+      headers: { Authorization: `Bearer ${employeeLogin.body.accessToken}` },
+    });
+    const passwordResetNotification = passwordResetNotifications.body.notifications?.find(
+      (notification) => notification.type === "PASSWORD_RESET",
+    );
+    assert(
+      passwordResetNotifications.status === 200 &&
+        passwordResetNotifications.body.unreadCount >= 1 &&
+        passwordResetNotification &&
+        !passwordResetNotification.message.includes(employeeInput.password),
+      "Secure employee password-reset notification was not created",
+    );
+    const readPasswordResetNotification = await request(
+      `/employee/notifications/${passwordResetNotification.id}/read`,
+      {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${employeeLogin.body.accessToken}` },
+      },
+    );
+    assert(
+      readPasswordResetNotification.status === 200 &&
+        readPasswordResetNotification.body.notification.isRead === true,
+      "Employee notification read state was not persisted",
+    );
 
     const employeeMe = await request("/auth/me", {
       headers: { Authorization: `Bearer ${employeeLogin.body.accessToken}` },
@@ -619,8 +694,15 @@ async function main() {
     );
     assert(
       disabledAutoCheckoutAttendance.status === 200 &&
-        disabledAutoCheckoutSession?.status === "IN_PROGRESS",
-      "A session was automatically closed while auto-checkout was disabled",
+        disabledAutoCheckoutSession?.status === "COMPLETED" &&
+        disabledAutoCheckoutSession.punchOutReason === "MISSED_CHECKOUT",
+      "An unclosed session was not classified as a missed checkout at day end",
+    );
+    await pool.query(
+      `UPDATE attendance_sessions
+       SET punch_out_at = NULL, punch_out_reason = NULL, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [customPunchIn.body.session.id],
     );
     await pool.query(
       `UPDATE work_shifts

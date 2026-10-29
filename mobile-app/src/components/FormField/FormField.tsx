@@ -1,4 +1,4 @@
-import { forwardRef, useState, type ReactNode } from "react";
+import { forwardRef, useState, type ComponentRef, type ReactNode } from "react";
 import {
   Text,
   TextInput,
@@ -13,7 +13,7 @@ export type FormFieldProps = Omit<TextInputProps, "style"> & {
   rightAccessory?: ReactNode;
 };
 
-const FormField = forwardRef<TextInput, FormFieldProps>(function FormField(
+const FormField = forwardRef<ComponentRef<typeof TextInput>, FormFieldProps>(function FormField(
   {
     label,
     error,

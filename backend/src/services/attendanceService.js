@@ -229,19 +229,26 @@ async function autoPunchOutExpiredSessions({ employeeUserId } = {}) {
     `WITH due_sessions AS (
        SELECT
          sessions.id,
-         ((sessions.attendance_date + shifts.end_time) AT TIME ZONE shifts.timezone)
-           + shifts.auto_checkout_delay_minutes * INTERVAL '1 minute' AS due_at
+         CASE
+           WHEN shifts.auto_checkout_enabled THEN
+             ((sessions.attendance_date + shifts.end_time) AT TIME ZONE shifts.timezone)
+               + shifts.auto_checkout_delay_minutes * INTERVAL '1 minute'
+           ELSE ((sessions.attendance_date + 1)::timestamp AT TIME ZONE shifts.timezone)
+         END AS due_at,
+         CASE
+           WHEN shifts.auto_checkout_enabled THEN 'AUTO_SHIFT_END'
+           ELSE 'MISSED_CHECKOUT'
+         END AS close_reason
        FROM attendance_sessions AS sessions
        JOIN employee_profiles AS profiles ON profiles.user_id = sessions.employee_user_id
        JOIN work_shifts AS shifts ON shifts.id = profiles.shift_id
        WHERE sessions.punch_out_at IS NULL
-         AND shifts.auto_checkout_enabled = TRUE
        ${employeeFilter}
      )
      UPDATE attendance_sessions AS sessions
      SET
        punch_out_at = due_sessions.due_at,
-       punch_out_reason = 'AUTO_SHIFT_END',
+       punch_out_reason = due_sessions.close_reason,
        updated_at = CURRENT_TIMESTAMP
      FROM due_sessions
      WHERE sessions.id = due_sessions.id

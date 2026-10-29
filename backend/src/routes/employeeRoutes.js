@@ -10,6 +10,10 @@ const {
 } = require("../services/attendanceService");
 const { getUserById } = require("../services/authService");
 const { updateOwnProfile } = require("../services/employeeService");
+const {
+  listEmployeeNotifications,
+  markEmployeeNotificationRead,
+} = require("../services/notificationService");
 
 const router = express.Router();
 
@@ -35,6 +39,7 @@ const updateProfileSchema = z
     ),
   })
   .strict();
+const notificationIdSchema = z.string().uuid();
 
 router.use(authenticate, requireRole("EMPLOYEE"));
 
@@ -46,6 +51,17 @@ router.patch("/profile", async (request, response) => {
   const input = updateProfileSchema.parse(request.body);
   await updateOwnProfile(request.user.id, input);
   response.json({ user: await getUserById(request.user.id) });
+});
+
+router.get("/notifications", async (request, response) => {
+  response.json(await listEmployeeNotifications(request.user.id));
+});
+
+router.patch("/notifications/:notificationId/read", async (request, response) => {
+  const notificationId = notificationIdSchema.parse(request.params.notificationId);
+  response.json({
+    notification: await markEmployeeNotificationRead(request.user.id, notificationId),
+  });
 });
 
 router.post("/attendance/punch-in", async (request, response) => {

@@ -65,7 +65,9 @@
             "webpEnabled": false
           }
         }
-      ]
+      ],
+      "expo-status-bar",
+      "expo-font"
     ],
     "extra": {
       "eas": {

@@ -11,7 +11,7 @@
     "db:migrate": "node src/db/migrate.js",
     "db:seed:admin": "tsx seed/adminpass.ts",
     "db:setup": "npm run db:create && npm run db:migrate && npm run db:seed:admin",
-    "check": "node --check src/server.js && node --check src/app.js && node --check src/routes/authRoutes.js && node --check src/routes/adminRoutes.js && node --check src/routes/employeeRoutes.js && node --check src/services/authService.js && node --check src/services/employeeService.js && node --check src/services/attendanceLocationService.js && node --check src/services/attendanceService.js && node --check src/services/adminAttendanceService.js && node --check src/services/adminSettingsService.js && node --check src/services/attendanceScheduler.js && node --check src/middleware/authenticate.js && node --check src/tests/integration.js",
+    "check": "node --check src/server.js && node --check src/app.js && node --check src/routes/authRoutes.js && node --check src/routes/adminRoutes.js && node --check src/routes/employeeRoutes.js && node --check src/services/authService.js && node --check src/services/employeeService.js && node --check src/services/notificationService.js && node --check src/services/attendanceLocationService.js && node --check src/services/attendanceService.js && node --check src/services/adminAttendanceService.js && node --check src/services/adminSettingsService.js && node --check src/services/attendanceScheduler.js && node --check src/middleware/authenticate.js && node --check src/tests/integration.js",
     "test:integration": "node src/tests/integration.js"
   },
   "dependencies": {

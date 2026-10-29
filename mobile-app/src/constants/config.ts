@@ -1,4 +1,4 @@
-// Production API: https://windworld.apponext.in/api
+// Hosted API. Local development can override this with EXPO_PUBLIC_API_URL.
 export const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL ?? "https://windworld.apponext.in/api";
 

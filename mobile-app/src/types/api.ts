@@ -87,6 +87,21 @@ export type EmployeesResponse = {
   };
 };
 
+export type EmployeeNotification = {
+  id: string;
+  type: "PASSWORD_RESET" | string;
+  title: string;
+  message: string;
+  isRead: boolean;
+  readAt: string | null;
+  createdAt: string;
+};
+
+export type EmployeeNotificationsResponse = {
+  notifications: EmployeeNotification[];
+  unreadCount: number;
+};
+
 export type AttendanceLocationsResponse = {
   locations: AttendanceLocation[];
 };
@@ -108,7 +123,7 @@ export type AttendanceSession = {
   durationMinutes: number;
   status: "IN_PROGRESS" | "COMPLETED";
   isLate: boolean;
-  punchOutReason: "MANUAL" | "AUTO_SHIFT_END" | "AUTO_MAX_DURATION" | null;
+  punchOutReason: "MANUAL" | "AUTO_SHIFT_END" | "AUTO_MAX_DURATION" | "MISSED_CHECKOUT" | null;
   location: RecordedAttendanceLocation;
   punchOutLocation: RecordedAttendanceLocation | null;
 };
@@ -165,7 +180,7 @@ export type AdminAttendanceLog = {
   durationMinutes: number;
   status: "IN_PROGRESS" | "COMPLETED";
   isLate: boolean;
-  punchOutReason: "MANUAL" | "AUTO_SHIFT_END" | "AUTO_MAX_DURATION" | null;
+  punchOutReason: "MANUAL" | "AUTO_SHIFT_END" | "AUTO_MAX_DURATION" | "MISSED_CHECKOUT" | null;
   punchIn: {
     latitude: number;
     longitude: number;
@@ -194,6 +209,7 @@ export type AdminAttendanceLogsResponse = {
     uniqueEmployees: number;
     inProgress: number;
     lateRecords: number;
+    missedCheckouts: number;
     totalMinutes: number;
   };
   logs: AdminAttendanceLog[];

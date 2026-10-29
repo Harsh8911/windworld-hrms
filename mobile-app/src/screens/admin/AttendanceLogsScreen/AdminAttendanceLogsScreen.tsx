@@ -58,12 +58,14 @@ function formatRange(report: AdminAttendanceLogsResponse | null) {
 function checkoutLabel(reason: AdminAttendanceLog["punchOutReason"]) {
   if (reason === "AUTO_SHIFT_END") return "Auto after shift";
   if (reason === "AUTO_MAX_DURATION") return "Auto at 8h limit";
+  if (reason === "MISSED_CHECKOUT") return "Not checked out";
   if (reason === "MANUAL") return "Manual checkout";
   return "Currently working";
 }
 
 function AttendanceLogCard({ log }: { log: AdminAttendanceLog }) {
   const isWorking = log.status === "IN_PROGRESS";
+  const missedCheckout = log.punchOutReason === "MISSED_CHECKOUT";
 
   return (
     <View className="mb-3 rounded-[24px] border border-slate-200 bg-white p-4">
@@ -77,9 +79,9 @@ function AttendanceLogCard({ log }: { log: AdminAttendanceLog }) {
             {log.employee.employeeId} · {log.employee.designation ?? "No designation"}
           </Text>
         </View>
-        <View className={`rounded-full px-3 py-1.5 ${isWorking ? "bg-amber-50" : "bg-wind-50"}`}>
-          <Text className={`text-[10px] font-bold ${isWorking ? "text-amber-700" : "text-wind-700"}`}>
-            {isWorking ? "ON SHIFT" : "COMPLETED"}
+        <View className={`rounded-full px-3 py-1.5 ${missedCheckout ? "bg-red-50" : isWorking ? "bg-amber-50" : "bg-wind-50"}`}>
+          <Text className={`text-[10px] font-bold ${missedCheckout ? "text-red-700" : isWorking ? "text-amber-700" : "text-wind-700"}`}>
+            {missedCheckout ? "NOT CHECKED OUT" : isWorking ? "ON SHIFT" : "COMPLETED"}
           </Text>
         </View>
       </View>
@@ -260,6 +262,13 @@ export default function AdminAttendanceLogsScreen() {
             </Text>
           </View>
         ) : null}
+        {report && report.summary.missedCheckouts > 0 ? (
+          <View className="rounded-full bg-red-50 px-3 py-1.5">
+            <Text className="text-[10px] font-bold text-red-700">
+              {report.summary.missedCheckouts} NOT CHECKED OUT
+            </Text>
+          </View>
+        ) : null}
       </View>
 
       {error ? (
@@ -287,7 +296,7 @@ export default function AdminAttendanceLogsScreen() {
       keyExtractor={(item) => item.id}
       keyboardShouldPersistTaps="handled"
       ListEmptyComponent={
-        !error ? (
+        error ? undefined : (
           <View className="items-center rounded-[24px] border border-slate-200 bg-white px-6 py-10">
             <View className="h-12 w-12 items-center justify-center rounded-[18px] bg-wind-50">
               <View className="h-4 w-4 rounded-full border-2 border-wind-700" />
@@ -303,7 +312,7 @@ export default function AdminAttendanceLogsScreen() {
                   : `No ${period} attendance has been recorded yet.`}
             </Text>
           </View>
-        ) : null
+        )
       }
       ListHeaderComponent={header}
       onRefresh={() => void loadReport(period, true)}

@@ -394,6 +394,47 @@ async function deleteEmployee(employeeUserId) {
   }
 }
 
+async function resetEmployeePassword(employeeUserId, password, adminUserId) {
+  const client = await pool.connect();
+
+  try {
+    const passwordHash = await bcrypt.hash(password, 12);
+    await client.query("BEGIN");
+    const result = await client.query(
+      `UPDATE users
+       SET password_hash = $2, updated_at = NOW()
+       WHERE id = $1 AND role = 'EMPLOYEE'
+       RETURNING id`,
+      [employeeUserId, passwordHash],
+    );
+    if (result.rowCount === 0) {
+      throw new AppError(404, "EMPLOYEE_NOT_FOUND", "Employee profile not found");
+    }
+    await client.query(
+      `UPDATE refresh_sessions
+       SET revoked_at = COALESCE(revoked_at, NOW())
+       WHERE user_id = $1`,
+      [employeeUserId],
+    );
+    await client.query(
+      `INSERT INTO employee_notifications (
+         employee_user_id, type, title, message, created_by
+       ) VALUES ($1, 'PASSWORD_RESET', 'Password changed by administrator', $2, $3)`,
+      [
+        employeeUserId,
+        "An administrator changed your account password. Sign in with the new password provided to you. If you did not expect this change, contact your administrator immediately.",
+        adminUserId,
+      ],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function updateOwnProfile(employeeUserId, input) {
   const client = await pool.connect();
 
@@ -430,6 +471,7 @@ module.exports = {
   getEmployeeById,
   getNextEmployeeId,
   listEmployees,
+  resetEmployeePassword,
   setEmployeeArchived,
   updateEmployee,
   updateOwnProfile,

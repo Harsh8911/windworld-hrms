@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type ComponentRef } from "react";
 import { StatusBar } from "expo-status-bar";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import {
@@ -32,7 +32,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<LoginErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const passwordInputRef = useRef<TextInput>(null);
+  const passwordInputRef = useRef<ComponentRef<typeof TextInput>>(null);
 
   const handleLogin = async () => {
     if (isSubmitting) return;

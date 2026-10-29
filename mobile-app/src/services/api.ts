@@ -11,6 +11,8 @@ import type {
   AuthenticationResponse,
   AuthenticatedUser,
   Employee,
+  EmployeeNotification,
+  EmployeeNotificationsResponse,
   EmployeesResponse,
   HealthStatus,
 } from "../types/api";
@@ -256,8 +258,9 @@ export function createEmployee(input: CreateEmployeeInput): Promise<{ employee: 
   });
 }
 
-export function getAttendanceLocations(): Promise<AttendanceLocationsResponse> {
-  return authenticatedRequest<AttendanceLocationsResponse>("/admin/attendance-locations");
+export function getAttendanceLocations(includeInactive = false): Promise<AttendanceLocationsResponse> {
+  const query = includeInactive ? "?includeInactive=true" : "";
+  return authenticatedRequest<AttendanceLocationsResponse>(`/admin/attendance-locations${query}`);
 }
 
 export function getAdminAttendanceLogs(
@@ -287,6 +290,32 @@ export function createAttendanceLocation(
     "/admin/attendance-locations",
     { method: "POST", body: JSON.stringify(input) },
   );
+}
+
+export function updateAttendanceLocation(
+  locationId: string,
+  input: CreateAttendanceLocationInput,
+): Promise<{ location: AttendanceLocation }> {
+  return authenticatedRequest<{ location: AttendanceLocation }>(
+    `/admin/attendance-locations/${locationId}`,
+    { method: "PATCH", body: JSON.stringify(input) },
+  );
+}
+
+export function setAttendanceLocationArchived(
+  locationId: string,
+  archived: boolean,
+): Promise<{ location: AttendanceLocation }> {
+  return authenticatedRequest<{ location: AttendanceLocation }>(
+    `/admin/attendance-locations/${locationId}/archive`,
+    { method: "PATCH", body: JSON.stringify({ archived }) },
+  );
+}
+
+export function deleteAttendanceLocation(locationId: string): Promise<void> {
+  return authenticatedRequest<void>(`/admin/attendance-locations/${locationId}`, {
+    method: "DELETE",
+  });
 }
 
 export async function getAttendanceOverview(): Promise<AttendanceOverview> {
@@ -357,6 +386,26 @@ export function deleteEmployee(employeeId: string): Promise<void> {
   return authenticatedRequest<void>(`/admin/employees/${employeeId}`, {
     method: "DELETE",
   });
+}
+
+export function resetEmployeeCredentials(employeeId: string, password: string): Promise<void> {
+  return authenticatedRequest<void>(`/admin/employees/${employeeId}/credentials`, {
+    method: "PATCH",
+    body: JSON.stringify({ password }),
+  });
+}
+
+export function getEmployeeNotifications(): Promise<EmployeeNotificationsResponse> {
+  return authenticatedRequest<EmployeeNotificationsResponse>("/employee/notifications");
+}
+
+export function markEmployeeNotificationRead(
+  notificationId: string,
+): Promise<{ notification: EmployeeNotification }> {
+  return authenticatedRequest<{ notification: EmployeeNotification }>(
+    `/employee/notifications/${notificationId}/read`,
+    { method: "PATCH" },
+  );
 }
 
 export function updateOwnProfile(input: {
