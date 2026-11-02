@@ -3,13 +3,34 @@ import { FlatList, Pressable, Text, TextInput, View } from "react-native";
 
 import { ApiError, getAdminAttendanceLogs } from "../../../services/api";
 import type { AdminAttendancePeriod } from "../../../types/admin";
-import type { AdminAttendanceLog, AdminAttendanceLogsResponse } from "../../../types/api";
+import type {
+  AdminAttendanceLog,
+  AdminAttendanceLogsResponse,
+} from "../../../types/api";
 
 const periods: Array<{ key: AdminAttendancePeriod; label: string }> = [
   { key: "daily", label: "Daily" },
   { key: "weekly", label: "Weekly" },
   { key: "monthly", label: "Monthly" },
 ];
+
+function getCurrentMonthKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function formatMonthKey(monthKey: string) {
+  return new Date(`${monthKey}-01T00:00:00`).toLocaleDateString("en-IN", {
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function addMonths(monthKey: string, delta: number) {
+  const date = new Date(`${monthKey}-01T00:00:00`);
+  date.setMonth(date.getMonth() + delta);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
 
 function initials(name: string) {
   return name
@@ -47,10 +68,16 @@ function formatTime(value: string | null, timezone: string) {
 function formatRange(report: AdminAttendanceLogsResponse | null) {
   if (!report) return "Loading report period...";
   if (report.period === "daily") {
-    return formatDate(report.range.startDate, { weekday: "long", month: "long" });
+    return formatDate(report.range.startDate, {
+      weekday: "long",
+      month: "long",
+    });
   }
   if (report.period === "monthly") {
-    return formatDate(report.range.startDate, { day: undefined, month: "long" });
+    return formatDate(report.range.startDate, {
+      day: undefined,
+      month: "long",
+    });
   }
   return `${formatDate(report.range.startDate)} - ${formatDate(report.range.endDate)}`;
 }
@@ -71,17 +98,30 @@ function AttendanceLogCard({ log }: { log: AdminAttendanceLog }) {
     <View className="mb-3 rounded-[24px] border border-slate-200 bg-white p-4">
       <View className="flex-row items-center">
         <View className="h-12 w-12 items-center justify-center rounded-[17px] bg-wind-50">
-          <Text className="text-sm font-bold text-wind-700">{initials(log.employee.fullName)}</Text>
-        </View>
-        <View className="ml-3 flex-1 pr-2">
-          <Text className="text-base font-bold text-slate-950">{log.employee.fullName}</Text>
-          <Text className="mt-1 text-xs text-slate-500">
-            {log.employee.employeeId} · {log.employee.designation ?? "No designation"}
+          <Text className="text-sm font-bold text-wind-700">
+            {initials(log.employee.fullName)}
           </Text>
         </View>
-        <View className={`rounded-full px-3 py-1.5 ${missedCheckout ? "bg-red-50" : isWorking ? "bg-amber-50" : "bg-wind-50"}`}>
-          <Text className={`text-[10px] font-bold ${missedCheckout ? "text-red-700" : isWorking ? "text-amber-700" : "text-wind-700"}`}>
-            {missedCheckout ? "NOT CHECKED OUT" : isWorking ? "ON SHIFT" : "COMPLETED"}
+        <View className="ml-3 flex-1 pr-2">
+          <Text className="text-base font-bold text-slate-950">
+            {log.employee.fullName}
+          </Text>
+          <Text className="mt-1 text-xs text-slate-500">
+            {log.employee.employeeId} ·{" "}
+            {log.employee.designation ?? "No designation"}
+          </Text>
+        </View>
+        <View
+          className={`rounded-full px-3 py-1.5 ${missedCheckout ? "bg-red-50" : isWorking ? "bg-amber-50" : "bg-wind-50"}`}
+        >
+          <Text
+            className={`text-[10px] font-bold ${missedCheckout ? "text-red-700" : isWorking ? "text-amber-700" : "text-wind-700"}`}
+          >
+            {missedCheckout
+              ? "NOT CHECKED OUT"
+              : isWorking
+                ? "ON SHIFT"
+                : "COMPLETED"}
           </Text>
         </View>
       </View>
@@ -90,19 +130,25 @@ function AttendanceLogCard({ log }: { log: AdminAttendanceLog }) {
 
       <View className="flex-row">
         <View className="flex-1">
-          <Text className="text-[10px] font-semibold text-slate-400">CHECK IN</Text>
+          <Text className="text-[10px] font-semibold text-slate-400">
+            CHECK IN
+          </Text>
           <Text className="mt-1 text-base font-bold text-slate-950">
             {formatTime(log.punchInAt, log.shift.timezone)}
           </Text>
         </View>
         <View className="flex-1">
-          <Text className="text-[10px] font-semibold text-slate-400">CHECK OUT</Text>
+          <Text className="text-[10px] font-semibold text-slate-400">
+            CHECK OUT
+          </Text>
           <Text className="mt-1 text-base font-bold text-slate-950">
             {formatTime(log.punchOutAt, log.shift.timezone)}
           </Text>
         </View>
         <View className="flex-1 items-end">
-          <Text className="text-[10px] font-semibold text-slate-400">WORKED</Text>
+          <Text className="text-[10px] font-semibold text-slate-400">
+            WORKED
+          </Text>
           <Text className="mt-1 text-base font-bold text-wind-800">
             {formatMinutes(log.durationMinutes)}
           </Text>
@@ -112,11 +158,16 @@ function AttendanceLogCard({ log }: { log: AdminAttendanceLog }) {
       <View className="mt-4 rounded-[16px] bg-slate-50 px-3 py-3">
         <View className="flex-row items-center">
           <View className="h-2.5 w-2.5 rounded-full bg-wind-600" />
-          <Text className="ml-2 flex-1 text-xs font-semibold text-slate-700">{log.location.name}</Text>
-          <Text className="text-xs text-slate-500">{formatDate(log.attendanceDate)}</Text>
+          <Text className="ml-2 flex-1 text-xs font-semibold text-slate-700">
+            {log.location.name}
+          </Text>
+          <Text className="text-xs text-slate-500">
+            {formatDate(log.attendanceDate)}
+          </Text>
         </View>
         <Text className="mt-2 text-[11px] leading-4 text-slate-500">
-          {log.shift.name} · {log.employee.department ?? "No department"} · {checkoutLabel(log.punchOutReason)}
+          {log.shift.name} · {log.employee.department ?? "No department"} ·{" "}
+          {checkoutLabel(log.punchOutReason)}
         </Text>
         <Text className="mt-1 text-[11px] leading-4 text-slate-400">
           {log.punchIn.distanceMeters === null
@@ -127,7 +178,9 @@ function AttendanceLogCard({ log }: { log: AdminAttendanceLog }) {
 
       {log.isLate ? (
         <View className="mt-3 self-start rounded-full bg-red-50 px-3 py-1.5">
-          <Text className="text-[10px] font-bold text-red-700">LATE ARRIVAL</Text>
+          <Text className="text-[10px] font-bold text-red-700">
+            LATE ARRIVAL
+          </Text>
         </View>
       ) : null}
     </View>
@@ -136,37 +189,53 @@ function AttendanceLogCard({ log }: { log: AdminAttendanceLog }) {
 
 export default function AdminAttendanceLogsScreen() {
   const [period, setPeriod] = useState<AdminAttendancePeriod>("daily");
+  const [selectedMonth, setSelectedMonth] =
+    useState<string>(getCurrentMonthKey());
   const [query, setQuery] = useState("");
-  const [report, setReport] = useState<AdminAttendanceLogsResponse | null>(null);
+  const [report, setReport] = useState<AdminAttendanceLogsResponse | null>(
+    null,
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState("");
 
-  const loadReport = useCallback(async (selectedPeriod: AdminAttendancePeriod, refreshing = false) => {
-    if (refreshing) setIsRefreshing(true);
-    else {
-      setIsLoading(true);
-      setReport(null);
-    }
-    setError("");
+  const currentMonthKey = getCurrentMonthKey();
+  const canGoForward = selectedMonth < currentMonthKey;
 
-    try {
-      setReport(await getAdminAttendanceLogs(selectedPeriod));
-    } catch (requestError) {
-      setError(
-        requestError instanceof ApiError
-          ? requestError.message
-          : "Unable to load the attendance report.",
-      );
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  }, []);
+  const loadReport = useCallback(
+    async (
+      selectedPeriod: AdminAttendancePeriod,
+      monthKey: string,
+      refreshing = false,
+    ) => {
+      if (refreshing) setIsRefreshing(true);
+      else {
+        setIsLoading(true);
+        setReport(null);
+      }
+      setError("");
+
+      try {
+        const anchorDate =
+          selectedPeriod === "monthly" ? `${monthKey}-01` : undefined;
+        setReport(await getAdminAttendanceLogs(selectedPeriod, "", anchorDate));
+      } catch (requestError) {
+        setError(
+          requestError instanceof ApiError
+            ? requestError.message
+            : "Unable to load the attendance report.",
+        );
+      } finally {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
-    void loadReport(period);
-  }, [loadReport, period]);
+    void loadReport(period, selectedMonth);
+  }, [loadReport, period, selectedMonth]);
 
   const visibleLogs = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -183,8 +252,12 @@ export default function AdminAttendanceLogsScreen() {
 
   const header = (
     <View>
-      <Text className="text-sm font-semibold text-wind-700">WORKFORCE INSIGHTS</Text>
-      <Text className="mt-1 text-[30px] font-bold leading-9 text-slate-950">Attendance reports</Text>
+      <Text className="text-sm font-semibold text-wind-700">
+        WORKFORCE INSIGHTS
+      </Text>
+      <Text className="mt-1 text-[30px] font-bold leading-9 text-slate-950">
+        Attendance reports
+      </Text>
       <Text className="mt-2 text-sm leading-5 text-slate-500">
         Real check-in and checkout records from your workforce.
       </Text>
@@ -200,9 +273,15 @@ export default function AdminAttendanceLogsScreen() {
               className={`min-h-12 flex-1 items-center justify-center rounded-[15px] ${
                 isActive ? "bg-wind-900" : "bg-white active:bg-slate-50"
               }`}
-              onPress={() => setPeriod(item.key)}
+              onPress={() => {
+                if (item.key === "monthly")
+                  setSelectedMonth(getCurrentMonthKey());
+                setPeriod(item.key);
+              }}
             >
-              <Text className={`text-xs font-bold ${isActive ? "text-white" : "text-slate-500"}`}>
+              <Text
+                className={`text-xs font-bold ${isActive ? "text-white" : "text-slate-500"}`}
+              >
                 {item.label}
               </Text>
             </Pressable>
@@ -212,20 +291,56 @@ export default function AdminAttendanceLogsScreen() {
 
       <View className="mt-4 overflow-hidden rounded-[28px] bg-wind-900 p-5">
         <View className="absolute -right-8 -top-8 h-28 w-28 rounded-full bg-wind-800" />
-        <Text className="text-xs font-semibold text-emerald-100">{formatRange(report)}</Text>
+        {period === "monthly" ? (
+          <View className="flex-row items-center">
+            <Pressable
+              accessibilityLabel="Previous month"
+              className="h-7 w-7 items-center justify-center rounded-[10px] bg-wind-800 active:bg-wind-700"
+              onPress={() => setSelectedMonth((prev) => addMonths(prev, -1))}
+            >
+              <Text className="text-sm font-bold text-white">‹</Text>
+            </Pressable>
+            <Text className="flex-1 text-center text-xs font-semibold text-emerald-100">
+              {formatMonthKey(selectedMonth).toUpperCase()}
+            </Text>
+            <Pressable
+              accessibilityLabel="Next month"
+              className={`h-7 w-7 items-center justify-center rounded-[10px] ${canGoForward ? "bg-wind-800 active:bg-wind-700" : "bg-wind-900"}`}
+              disabled={!canGoForward}
+              onPress={() => {
+                if (canGoForward)
+                  setSelectedMonth((prev) => addMonths(prev, 1));
+              }}
+            >
+              <Text
+                className={`text-sm font-bold ${canGoForward ? "text-white" : "text-wind-700"}`}
+              >
+                ›
+              </Text>
+            </Pressable>
+          </View>
+        ) : (
+          <Text className="text-xs font-semibold text-emerald-100">
+            {formatRange(report)}
+          </Text>
+        )}
         <View className="mt-5 flex-row">
           <View className="flex-1">
             <Text className="text-[28px] font-bold text-white">
               {report?.summary.totalRecords ?? "--"}
             </Text>
-            <Text className="mt-1 text-xs text-emerald-100">Attendance records</Text>
+            <Text className="mt-1 text-xs text-emerald-100">
+              Attendance records
+            </Text>
           </View>
           <View className="w-px bg-wind-700" />
           <View className="flex-1 pl-5">
             <Text className="text-[28px] font-bold text-white">
               {report ? formatMinutes(report.summary.totalMinutes) : "--"}
             </Text>
-            <Text className="mt-1 text-xs text-emerald-100">Total work time</Text>
+            <Text className="mt-1 text-xs text-emerald-100">
+              Total work time
+            </Text>
           </View>
         </View>
         <View className="mt-5 flex-row rounded-[18px] bg-wind-800 px-4 py-3">
@@ -252,8 +367,12 @@ export default function AdminAttendanceLogsScreen() {
 
       <View className="mb-3 mt-7 flex-row items-end justify-between">
         <View>
-          <Text className="text-xl font-bold text-slate-950">Employee logs</Text>
-          <Text className="mt-1 text-xs text-slate-500">{visibleLogs.length} records shown</Text>
+          <Text className="text-xl font-bold text-slate-950">
+            Employee logs
+          </Text>
+          <Text className="mt-1 text-xs text-slate-500">
+            {visibleLogs.length} records shown
+          </Text>
         </View>
         {report && report.summary.lateRecords > 0 ? (
           <View className="rounded-full bg-red-50 px-3 py-1.5">
@@ -273,13 +392,16 @@ export default function AdminAttendanceLogsScreen() {
 
       {error ? (
         <View className="mb-4 rounded-[20px] border border-red-200 bg-red-50 px-4 py-4">
-          <Text accessibilityLiveRegion="polite" className="text-sm font-semibold leading-5 text-red-700">
+          <Text
+            accessibilityLiveRegion="polite"
+            className="text-sm font-semibold leading-5 text-red-700"
+          >
             {error}
           </Text>
           <Pressable
             accessibilityRole="button"
             className="mt-3 min-h-12 items-center justify-center rounded-[15px] bg-red-700"
-            onPress={() => void loadReport(period)}
+            onPress={() => void loadReport(period, selectedMonth)}
           >
             <Text className="text-xs font-bold text-white">Try again</Text>
           </Pressable>
@@ -315,7 +437,7 @@ export default function AdminAttendanceLogsScreen() {
         )
       }
       ListHeaderComponent={header}
-      onRefresh={() => void loadReport(period, true)}
+      onRefresh={() => void loadReport(period, selectedMonth, true)}
       refreshing={isRefreshing}
       renderItem={({ item }) => <AttendanceLogCard log={item} />}
       showsVerticalScrollIndicator={false}

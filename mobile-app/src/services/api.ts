@@ -64,7 +64,10 @@ export async function getHealthStatus(): Promise<HealthStatus> {
   return (await response.json()) as HealthStatus;
 }
 
-async function fetchApi(path: string, options?: RequestInit): Promise<Response> {
+async function fetchApi(
+  path: string,
+  options?: RequestInit,
+): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
@@ -156,7 +159,11 @@ async function authenticatedRequest<T>(
   const tokens = await getAuthenticationTokens();
 
   if (!tokens) {
-    throw new ApiError("Your session has expired. Please sign in again.", 401, "NO_SESSION");
+    throw new ApiError(
+      "Your session has expired. Please sign in again.",
+      401,
+      "NO_SESSION",
+    );
   }
 
   const send = (accessToken: string) =>
@@ -192,7 +199,9 @@ async function authenticatedRequest<T>(
 }
 
 export async function getCurrentUser(): Promise<AuthenticatedUser> {
-  const response = await authenticatedRequest<{ user: AuthenticatedUser }>("/auth/me");
+  const response = await authenticatedRequest<{ user: AuthenticatedUser }>(
+    "/auth/me",
+  );
   const profile = response.user.employeeProfile;
   if (!profile) return response.user;
 
@@ -208,13 +217,15 @@ export async function getCurrentUser(): Promise<AuthenticatedUser> {
       ...profile,
       employeeRole: profile.employeeRole ?? "EMPLOYEE",
       attendanceLocations,
-      attendanceLocation: profile.attendanceLocation ?? attendanceLocations[0] ?? null,
+      attendanceLocation:
+        profile.attendanceLocation ?? attendanceLocations[0] ?? null,
     },
   };
 }
 
 export async function getEmployees(): Promise<EmployeesResponse> {
-  const response = await authenticatedRequest<EmployeesResponse>("/admin/employees");
+  const response =
+    await authenticatedRequest<EmployeesResponse>("/admin/employees");
   return {
     ...response,
     employees: response.employees.map((employee) => {
@@ -229,14 +240,17 @@ export async function getEmployees(): Promise<EmployeesResponse> {
         employeeRole: employee.employeeRole ?? "EMPLOYEE",
         isActive: employee.isActive ?? employee.status !== "INACTIVE",
         attendanceLocations,
-        attendanceLocation: employee.attendanceLocation ?? attendanceLocations[0] ?? null,
+        attendanceLocation:
+          employee.attendanceLocation ?? attendanceLocations[0] ?? null,
       };
     }),
   };
 }
 
 export function getNextEmployeeId(): Promise<{ employeeId: string }> {
-  return authenticatedRequest<{ employeeId: string }>("/admin/employees/next-id");
+  return authenticatedRequest<{ employeeId: string }>(
+    "/admin/employees/next-id",
+  );
 }
 
 export type CreateEmployeeInput = {
@@ -251,24 +265,32 @@ export type CreateEmployeeInput = {
   attendanceLocationIds: string[];
 };
 
-export function createEmployee(input: CreateEmployeeInput): Promise<{ employee: Employee }> {
+export function createEmployee(
+  input: CreateEmployeeInput,
+): Promise<{ employee: Employee }> {
   return authenticatedRequest<{ employee: Employee }>("/admin/employees", {
     method: "POST",
     body: JSON.stringify(input),
   });
 }
 
-export function getAttendanceLocations(includeInactive = false): Promise<AttendanceLocationsResponse> {
+export function getAttendanceLocations(
+  includeInactive = false,
+): Promise<AttendanceLocationsResponse> {
   const query = includeInactive ? "?includeInactive=true" : "";
-  return authenticatedRequest<AttendanceLocationsResponse>(`/admin/attendance-locations${query}`);
+  return authenticatedRequest<AttendanceLocationsResponse>(
+    `/admin/attendance-locations${query}`,
+  );
 }
 
 export function getAdminAttendanceLogs(
   period: AdminAttendancePeriod,
   search = "",
+  anchorDate?: string,
 ): Promise<AdminAttendanceLogsResponse> {
   const query = new URLSearchParams({ period });
   if (search.trim()) query.set("search", search.trim());
+  if (anchorDate) query.set("anchorDate", anchorDate);
   return authenticatedRequest<AdminAttendanceLogsResponse>(
     `/admin/attendance-logs?${query.toString()}`,
   );
@@ -313,13 +335,18 @@ export function setAttendanceLocationArchived(
 }
 
 export function deleteAttendanceLocation(locationId: string): Promise<void> {
-  return authenticatedRequest<void>(`/admin/attendance-locations/${locationId}`, {
-    method: "DELETE",
-  });
+  return authenticatedRequest<void>(
+    `/admin/attendance-locations/${locationId}`,
+    {
+      method: "DELETE",
+    },
+  );
 }
 
 export async function getAttendanceOverview(): Promise<AttendanceOverview> {
-  const overview = await authenticatedRequest<AttendanceOverview>("/employee/attendance");
+  const overview = await authenticatedRequest<AttendanceOverview>(
+    "/employee/attendance",
+  );
   return {
     ...overview,
     employeeRole: overview.employeeRole ?? "EMPLOYEE",
@@ -366,10 +393,13 @@ export function updateEmployee(
   employeeId: string,
   input: UpdateEmployeeInput,
 ): Promise<{ employee: Employee }> {
-  return authenticatedRequest<{ employee: Employee }>(`/admin/employees/${employeeId}`, {
-    method: "PATCH",
-    body: JSON.stringify(input),
-  });
+  return authenticatedRequest<{ employee: Employee }>(
+    `/admin/employees/${employeeId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    },
+  );
 }
 
 export function setEmployeeArchived(
@@ -388,15 +418,23 @@ export function deleteEmployee(employeeId: string): Promise<void> {
   });
 }
 
-export function resetEmployeeCredentials(employeeId: string, password: string): Promise<void> {
-  return authenticatedRequest<void>(`/admin/employees/${employeeId}/credentials`, {
-    method: "PATCH",
-    body: JSON.stringify({ password }),
-  });
+export function resetEmployeeCredentials(
+  employeeId: string,
+  password: string,
+): Promise<void> {
+  return authenticatedRequest<void>(
+    `/admin/employees/${employeeId}/credentials`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ password }),
+    },
+  );
 }
 
 export function getEmployeeNotifications(): Promise<EmployeeNotificationsResponse> {
-  return authenticatedRequest<EmployeeNotificationsResponse>("/employee/notifications");
+  return authenticatedRequest<EmployeeNotificationsResponse>(
+    "/employee/notifications",
+  );
 }
 
 export function markEmployeeNotificationRead(
@@ -412,10 +450,13 @@ export function updateOwnProfile(input: {
   fullName: string;
   phone: string | null;
 }): Promise<{ user: AuthenticatedUser }> {
-  return authenticatedRequest<{ user: AuthenticatedUser }>("/employee/profile", {
-    method: "PATCH",
-    body: JSON.stringify(input),
-  });
+  return authenticatedRequest<{ user: AuthenticatedUser }>(
+    "/employee/profile",
+    {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    },
+  );
 }
 
 export function punchIn(
@@ -424,7 +465,10 @@ export function punchIn(
 ): Promise<{ session: AttendanceSession }> {
   return authenticatedRequest<{ session: AttendanceSession }>(
     "/employee/attendance/punch-in",
-    { method: "POST", body: JSON.stringify({ ...position, attendanceLocationId }) },
+    {
+      method: "POST",
+      body: JSON.stringify({ ...position, attendanceLocationId }),
+    },
   );
 }
 
@@ -434,6 +478,9 @@ export function punchOut(
 ): Promise<{ session: AttendanceSession }> {
   return authenticatedRequest<{ session: AttendanceSession }>(
     "/employee/attendance/punch-out",
-    { method: "POST", body: JSON.stringify({ ...position, attendanceLocationId }) },
+    {
+      method: "POST",
+      body: JSON.stringify({ ...position, attendanceLocationId }),
+    },
   );
 }
