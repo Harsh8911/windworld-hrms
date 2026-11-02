@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import {
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  Text,
+  View,
+} from "react-native";
 
 import GeofenceMap from "../../../components/GeofenceMap/GeofenceMap";
 import {
@@ -90,7 +96,9 @@ function buildRecords(
 
   for (const session of sessions) {
     const key =
-      period === "weekly" ? getWeekStart(session.attendanceDate) : session.attendanceDate.slice(0, 7);
+      period === "weekly"
+        ? getWeekStart(session.attendanceDate)
+        : session.attendanceDate.slice(0, 7);
     const current = groups.get(key) ?? {
       minutes: 0,
       days: 0,
@@ -101,7 +109,9 @@ function buildRecords(
     current.days += 1;
     current.lateDays += session.isLate ? 1 : 0;
     current.latestDate =
-      current.latestDate > session.attendanceDate ? current.latestDate : session.attendanceDate;
+      current.latestDate > session.attendanceDate
+        ? current.latestDate
+        : session.attendanceDate;
     groups.set(key, current);
   }
 
@@ -122,8 +132,28 @@ function buildRecords(
   }));
 }
 
+function getCurrentMonthKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function formatMonthKey(monthKey: string) {
+  return new Date(`${monthKey}-01T00:00:00`).toLocaleDateString("en-IN", {
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function addMonths(monthKey: string, delta: number) {
+  const date = new Date(`${monthKey}-01T00:00:00`);
+  date.setMonth(date.getMonth() + delta);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
 export default function AttendanceScreen() {
   const [period, setPeriod] = useState<AttendancePeriod>("daily");
+  const [selectedMonth, setSelectedMonth] =
+    useState<string>(getCurrentMonthKey());
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
   const [overview, setOverview] = useState<AttendanceOverview | null>(null);
   const [error, setError] = useState("");
@@ -156,21 +186,35 @@ export default function AttendanceScreen() {
 
   useEffect(() => {
     void loadAttendance("initial");
-    const refreshTimer = setInterval(() => void loadAttendance("silent"), 60_000);
+    const refreshTimer = setInterval(
+      () => void loadAttendance("silent"),
+      60_000,
+    );
     return () => clearInterval(refreshTimer);
   }, [loadAttendance]);
 
   const overviewLocations = overview?.availableLocations ?? [];
   const assignedLocations = overviewLocations.length
     ? overviewLocations
-    : user?.employeeProfile?.attendanceLocations ?? [];
+    : (user?.employeeProfile?.attendanceLocations ?? []);
   const assignedLocation = assignedLocations[0];
   const todaySession = overview?.todaySession;
   const timezone = overview?.shift.timezone ?? "Asia/Kolkata";
+  const filteredSessions = useMemo(() => {
+    const sessions = overview?.sessions ?? [];
+    if (period === "monthly") {
+      return sessions.filter((s) => s.attendanceDate.startsWith(selectedMonth));
+    }
+    return sessions;
+  }, [overview, period, selectedMonth]);
+
   const records = useMemo(
-    () => buildRecords(overview?.sessions ?? [], period, timezone),
-    [overview, period, timezone],
+    () => buildRecords(filteredSessions, period, timezone),
+    [filteredSessions, period, timezone],
   );
+
+  const currentMonthKey = getCurrentMonthKey();
+  const canGoForward = selectedMonth < currentMonthKey;
   const currentDate = useMemo(
     () =>
       new Date().toLocaleDateString("en-IN", {
@@ -200,9 +244,15 @@ export default function AttendanceScreen() {
     >
       <View className="flex-row items-start justify-between">
         <View className="flex-1 pr-3">
-          <Text className="text-sm font-semibold text-wind-700">{currentDate}</Text>
-          <Text className="mt-1 text-[30px] font-bold leading-9 text-slate-950">Attendance</Text>
-          <Text className="mt-1 text-sm text-slate-500">Secure, location-verified check-in.</Text>
+          <Text className="text-sm font-semibold text-wind-700">
+            {currentDate}
+          </Text>
+          <Text className="mt-1 text-[30px] font-bold leading-9 text-slate-950">
+            Attendance
+          </Text>
+          <Text className="mt-1 text-sm text-slate-500">
+            Secure, location-verified check-in.
+          </Text>
         </View>
         <View className="rounded-[16px] border border-slate-200 bg-white px-3 py-2.5">
           <Text className="text-[11px] font-bold text-wind-800">
@@ -214,13 +264,23 @@ export default function AttendanceScreen() {
       <View className="mt-6 rounded-[28px] bg-wind-900 p-5">
         <View className="flex-row items-center justify-between">
           <View>
-            <Text className="text-xs font-semibold text-emerald-100">CURRENT STATUS</Text>
+            <Text className="text-xs font-semibold text-emerald-100">
+              CURRENT STATUS
+            </Text>
             <Text className="mt-2 text-2xl font-bold text-white">
-              {isOnShift ? "You are on shift" : isCompleted ? "Shift completed" : "Ready to start"}
+              {isOnShift
+                ? "You are on shift"
+                : isCompleted
+                  ? "Shift completed"
+                  : "Ready to start"}
             </Text>
           </View>
-          <View className={`h-12 w-12 items-center justify-center rounded-[18px] ${isOnShift ? "bg-emerald-400" : "bg-wind-800"}`}>
-            <View className={`h-4 w-4 rounded-full ${isOnShift ? "bg-white" : "bg-slate-300"}`} />
+          <View
+            className={`h-12 w-12 items-center justify-center rounded-[18px] ${isOnShift ? "bg-emerald-400" : "bg-wind-800"}`}
+          >
+            <View
+              className={`h-4 w-4 rounded-full ${isOnShift ? "bg-white" : "bg-slate-300"}`}
+            />
           </View>
         </View>
 
@@ -242,7 +302,9 @@ export default function AttendanceScreen() {
           <View className="flex-1 pl-4">
             <Text className="text-xs text-emerald-100">Total</Text>
             <Text className="mt-1 text-lg font-bold text-white">
-              {todaySession ? formatMinutes(todaySession.durationMinutes) : "0h 00m"}
+              {todaySession
+                ? formatMinutes(todaySession.durationMinutes)
+                : "0h 00m"}
             </Text>
           </View>
         </View>
@@ -269,7 +331,9 @@ export default function AttendanceScreen() {
       <View className="mb-4 mt-8 flex-row items-end justify-between">
         <View>
           <Text className="text-xl font-bold text-slate-950">
-            {overview?.employeeRole === "MANAGER" ? "Punch location policy" : "Verify location"}
+            {overview?.employeeRole === "MANAGER"
+              ? "Punch location policy"
+              : "Verify location"}
           </Text>
           <Text className="mt-1 text-xs text-slate-500">
             {overview?.employeeRole === "MANAGER"
@@ -279,7 +343,9 @@ export default function AttendanceScreen() {
         </View>
         {overview?.employeeRole !== "MANAGER" ? (
           <View className="rounded-full bg-wind-50 px-3 py-1.5">
-            <Text className="text-[10px] font-bold text-wind-700">ASSIGNED AREAS</Text>
+            <Text className="text-[10px] font-bold text-wind-700">
+              ASSIGNED AREAS
+            </Text>
           </View>
         ) : null}
       </View>
@@ -295,7 +361,8 @@ export default function AttendanceScreen() {
             Coordinate-only attendance enabled
           </Text>
           <Text className="mt-2 text-center text-xs leading-5 text-slate-600">
-            No administrator-created location is needed. Location permission is still required.
+            No administrator-created location is needed. Location permission is
+            still required.
           </Text>
         </View>
       ) : (
@@ -309,21 +376,23 @@ export default function AttendanceScreen() {
 
       <View className="mt-4 rounded-[24px] border border-slate-200 bg-white p-4">
         <View className="flex-row items-center">
-          <View className={`h-3 w-3 rounded-full ${assignedLocation ? "bg-emerald-500" : "bg-red-500"}`} />
+          <View
+            className={`h-3 w-3 rounded-full ${assignedLocation ? "bg-emerald-500" : "bg-red-500"}`}
+          />
           <View className="ml-3 flex-1">
             <Text className="text-sm font-bold text-slate-950">
               {overview?.employeeRole === "MANAGER"
                 ? "Punch from any GPS location"
                 : assignedLocations.length
-                ? `${assignedLocations.length} location${assignedLocations.length === 1 ? "" : "s"} available`
-                : "Location not assigned"}
+                  ? `${assignedLocations.length} location${assignedLocations.length === 1 ? "" : "s"} available`
+                  : "Location not assigned"}
             </Text>
             <Text className="mt-1 text-xs leading-5 text-slate-500">
               {overview?.employeeRole === "MANAGER"
                 ? "Home, client sites, and field locations are allowed; coordinates are retained for audit."
                 : assignedLocation
-                ? `${assignedLocations.map((location) => location.name).join(", ")} · Punch controls are available on Home.`
-                : "Contact your administrator to configure attendance."}
+                  ? `${assignedLocations.map((location) => location.name).join(", ")} · Punch controls are available on Home.`
+                  : "Contact your administrator to configure attendance."}
             </Text>
           </View>
         </View>
@@ -331,15 +400,22 @@ export default function AttendanceScreen() {
 
       {error ? (
         <View className="mt-4 rounded-[20px] border border-red-200 bg-red-50 px-4 py-4">
-          <Text accessibilityLiveRegion="polite" className="text-sm font-semibold leading-5 text-red-700">
+          <Text
+            accessibilityLiveRegion="polite"
+            className="text-sm font-semibold leading-5 text-red-700"
+          >
             {error}
           </Text>
         </View>
       ) : null}
 
       <View className="mb-4 mt-8">
-        <Text className="text-xl font-bold text-slate-950">Attendance history</Text>
-        <Text className="mt-1 text-xs text-slate-500">Every entry below is recorded in the database.</Text>
+        <Text className="text-xl font-bold text-slate-950">
+          Attendance history
+        </Text>
+        <Text className="mt-1 text-xs text-slate-500">
+          Every entry below is recorded in the database.
+        </Text>
       </View>
 
       <View className="mb-4 flex-row rounded-[20px] border border-slate-200 bg-white p-1.5">
@@ -353,15 +429,50 @@ export default function AttendanceScreen() {
               className={`min-h-12 flex-1 items-center justify-center rounded-[15px] ${
                 isActive ? "bg-wind-900" : "bg-white active:bg-slate-50"
               }`}
-              onPress={() => setPeriod(item.key)}
+              onPress={() => {
+                if (item.key === "monthly")
+                  setSelectedMonth(getCurrentMonthKey());
+                setPeriod(item.key);
+              }}
             >
-              <Text className={`text-xs font-bold ${isActive ? "text-white" : "text-slate-500"}`}>
+              <Text
+                className={`text-xs font-bold ${isActive ? "text-white" : "text-slate-500"}`}
+              >
                 {item.label}
               </Text>
             </Pressable>
           );
         })}
       </View>
+
+      {period === "monthly" && (
+        <View className="mb-4 flex-row items-center rounded-[20px] border border-slate-200 bg-white px-4 py-3">
+          <Pressable
+            accessibilityLabel="Previous month"
+            className="h-9 w-9 items-center justify-center rounded-[12px] bg-slate-100 active:bg-slate-200"
+            onPress={() => setSelectedMonth((prev) => addMonths(prev, -1))}
+          >
+            <Text className="text-base font-bold text-slate-700">‹</Text>
+          </Pressable>
+          <Text className="flex-1 text-center text-sm font-bold text-slate-950">
+            {formatMonthKey(selectedMonth)}
+          </Text>
+          <Pressable
+            accessibilityLabel="Next month"
+            className={`h-9 w-9 items-center justify-center rounded-[12px] ${canGoForward ? "bg-slate-100 active:bg-slate-200" : "bg-slate-50"}`}
+            disabled={!canGoForward}
+            onPress={() => {
+              if (canGoForward) setSelectedMonth((prev) => addMonths(prev, 1));
+            }}
+          >
+            <Text
+              className={`text-base font-bold ${canGoForward ? "text-slate-700" : "text-slate-300"}`}
+            >
+              ›
+            </Text>
+          </Pressable>
+        </View>
+      )}
 
       <View className="overflow-hidden rounded-[24px] border border-slate-200 bg-white">
         {records.length === 0 ? (
@@ -373,7 +484,9 @@ export default function AttendanceScreen() {
               {isLoading ? "Loading attendance" : "No attendance yet"}
             </Text>
             <Text className="mt-1 text-center text-xs leading-5 text-slate-500">
-              {isLoading ? "Fetching your secure records..." : "Your first completed shift will appear here."}
+              {isLoading
+                ? "Fetching your secure records..."
+                : "Your first completed shift will appear here."}
             </Text>
           </View>
         ) : null}
@@ -386,12 +499,20 @@ export default function AttendanceScreen() {
               <View className="h-3 w-3 rounded-full bg-wind-700" />
             </View>
             <View className="ml-3 flex-1 pr-2">
-              <Text className="text-sm font-bold text-slate-950">{record.label}</Text>
-              <Text className="mt-1 text-xs text-slate-500">{record.detail}</Text>
+              <Text className="text-sm font-bold text-slate-950">
+                {record.label}
+              </Text>
+              <Text className="mt-1 text-xs text-slate-500">
+                {record.detail}
+              </Text>
             </View>
             <View className="items-end">
-              <Text className="text-sm font-bold text-slate-950">{record.hours}</Text>
-              <Text className="mt-1 text-[10px] font-bold text-wind-700">{record.status}</Text>
+              <Text className="text-sm font-bold text-slate-950">
+                {record.hours}
+              </Text>
+              <Text className="mt-1 text-[10px] font-bold text-wind-700">
+                {record.status}
+              </Text>
             </View>
           </View>
         ))}

@@ -32,7 +32,11 @@ function publicLocation(location) {
   };
 }
 
-async function getEmployeeContext(client, employeeUserId, { lock = false } = {}) {
+async function getEmployeeContext(
+  client,
+  employeeUserId,
+  { lock = false } = {},
+) {
   const result = await client.query(
     `SELECT
        profiles.user_id,
@@ -57,7 +61,11 @@ async function getEmployeeContext(client, employeeUserId, { lock = false } = {})
   );
 
   if (result.rowCount === 0) {
-    throw new AppError(404, "EMPLOYEE_PROFILE_NOT_FOUND", "Employee profile not found");
+    throw new AppError(
+      404,
+      "EMPLOYEE_PROFILE_NOT_FOUND",
+      "Employee profile not found",
+    );
   }
 
   return result.rows[0];
@@ -103,7 +111,9 @@ function resolvePunchLocation(
   }
 
   if (attendanceLocationId) {
-    const selected = locations.find((location) => location.id === attendanceLocationId);
+    const selected = locations.find(
+      (location) => location.id === attendanceLocationId,
+    );
     if (!selected) {
       throw new AppError(
         422,
@@ -115,7 +125,8 @@ function resolvePunchLocation(
     const distance = geofenceDistance(selected, position);
     if (
       !allowArbitraryLocation &&
-      distance + position.accuracyMeters > Number(selected.geofence_radius_meters)
+      distance + position.accuracyMeters >
+        Number(selected.geofence_radius_meters)
     ) {
       throw new AppError(
         422,
@@ -128,11 +139,15 @@ function resolvePunchLocation(
   }
 
   const candidates = locations
-    .map((location) => ({ location, distance: geofenceDistance(location, position) }))
+    .map((location) => ({
+      location,
+      distance: geofenceDistance(location, position),
+    }))
     .sort((left, right) => left.distance - right.distance);
   const recognized = candidates.find(
     ({ location, distance }) =>
-      distance + position.accuracyMeters <= Number(location.geofence_radius_meters),
+      distance + position.accuracyMeters <=
+      Number(location.geofence_radius_meters),
   );
 
   if (!recognized && allowArbitraryLocation) {
@@ -171,12 +186,21 @@ function publicSession(row) {
   const punchOutAt = row.punch_out_at ? new Date(row.punch_out_at) : null;
   const durationEnd = punchOutAt ?? new Date(row.database_now ?? Date.now());
 
+  // If the employee punched in before the shift started, work hours count
+  // from shift start, not from the actual (early) punch time.
+  const shiftStartAt = row.shift_start_at ? new Date(row.shift_start_at) : null;
+  const durationStart =
+    shiftStartAt && punchInAt < shiftStartAt ? shiftStartAt : punchInAt;
+
   return {
     id: row.id,
     attendanceDate: dateOnly(row.attendance_date),
     punchInAt: punchInAt.toISOString(),
     punchOutAt: punchOutAt?.toISOString() ?? null,
-    durationMinutes: Math.max(0, Math.floor((durationEnd - punchInAt) / 60_000)),
+    durationMinutes: Math.max(
+      0,
+      Math.floor((durationEnd - durationStart) / 60_000),
+    ),
     status: punchOutAt ? "COMPLETED" : "IN_PROGRESS",
     isLate: Boolean(row.is_late),
     punchOutReason: row.punch_out_reason,
@@ -205,6 +229,7 @@ async function getSessionById(client, sessionId) {
        locations.name AS location_name,
        punch_out_locations.name AS punch_out_location_name,
        CURRENT_TIMESTAMP AS database_now,
+       (((sessions.attendance_date + shifts.start_time) AT TIME ZONE shifts.timezone)) AS shift_start_at,
        ((sessions.punch_in_at AT TIME ZONE shifts.timezone)::time > shifts.start_time) AS is_late
      FROM attendance_sessions AS sessions
      JOIN employee_profiles AS profiles ON profiles.user_id = sessions.employee_user_id
@@ -274,6 +299,7 @@ async function getAttendanceOverview(employeeUserId) {
          locations.name AS location_name,
          punch_out_locations.name AS punch_out_location_name,
          CURRENT_TIMESTAMP AS database_now,
+         (((sessions.attendance_date + shifts.start_time) AT TIME ZONE shifts.timezone)) AS shift_start_at,
          ((sessions.punch_in_at AT TIME ZONE shifts.timezone)::time > shifts.start_time) AS is_late
        FROM attendance_sessions AS sessions
        JOIN work_shifts AS shifts ON shifts.id = $2
@@ -287,7 +313,9 @@ async function getAttendanceOverview(employeeUserId) {
     );
     const sessions = result.rows.map(publicSession);
     const monthPrefix = localDate.slice(0, 7);
-    const monthSessions = sessions.filter((session) => session.attendanceDate.startsWith(monthPrefix));
+    const monthSessions = sessions.filter((session) =>
+      session.attendanceDate.startsWith(monthPrefix),
+    );
 
     return {
       serverTime: new Date(context.database_now).toISOString(),
@@ -295,7 +323,9 @@ async function getAttendanceOverview(employeeUserId) {
       employeeRole: context.employee_role,
       availableLocations: availableLocations.map(publicLocation),
       shift: publicShift(context),
-      todaySession: sessions.find((session) => session.attendanceDate === localDate) ?? null,
+      todaySession:
+        sessions.find((session) => session.attendanceDate === localDate) ??
+        null,
       sessions,
       currentMonth: {
         daysPresent: monthSessions.length,
@@ -315,14 +345,18 @@ async function punchIn(employeeUserId, input) {
 
   try {
     await client.query("BEGIN");
-    const context = await getEmployeeContext(client, employeeUserId, { lock: true });
+    const context = await getEmployeeContext(client, employeeUserId, {
+      lock: true,
+    });
     const now = new Date(context.database_now);
 
-    if (now < new Date(context.shift_start_at) || now >= new Date(context.shift_end_at)) {
+    // Employees can punch in at any time before shift end.
+    // Early punches (before shift start) are allowed; work hours count from shift start.
+    if (now >= new Date(context.shift_end_at)) {
       throw new AppError(
         422,
         "OUTSIDE_SHIFT_HOURS",
-        `Punch in is available during ${context.shift_start_time.slice(0, 5)}-${context.shift_end_time.slice(0, 5)}`,
+        `Punch in is only available before the shift ends at ${context.shift_end_time.slice(0, 5)}`,
       );
     }
 
@@ -335,7 +369,9 @@ async function punchIn(employeeUserId, input) {
     if (existing.rowCount > 0) {
       throw new AppError(
         409,
-        existing.rows[0].punch_out_at ? "ATTENDANCE_ALREADY_COMPLETED" : "ALREADY_PUNCHED_IN",
+        existing.rows[0].punch_out_at
+          ? "ATTENDANCE_ALREADY_COMPLETED"
+          : "ALREADY_PUNCHED_IN",
         existing.rows[0].punch_out_at
           ? "Today's attendance session is already completed"
           : "You are already punched in",
@@ -389,7 +425,9 @@ async function punchOut(employeeUserId, input) {
 
   try {
     await client.query("BEGIN");
-    const context = await getEmployeeContext(client, employeeUserId, { lock: true });
+    const context = await getEmployeeContext(client, employeeUserId, {
+      lock: true,
+    });
     const active = await client.query(
       `SELECT
          sessions.id,
@@ -405,7 +443,11 @@ async function punchOut(employeeUserId, input) {
     );
 
     if (active.rowCount === 0) {
-      throw new AppError(409, "NOT_PUNCHED_IN", "There is no active attendance session");
+      throw new AppError(
+        409,
+        "NOT_PUNCHED_IN",
+        "There is no active attendance session",
+      );
     }
 
     const currentSession = active.rows[0];
